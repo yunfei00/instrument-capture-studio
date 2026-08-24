@@ -1,6 +1,10 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
 
+from instrument_capture_studio.core.exceptions import (
+    CaptureCanceledError,
+    InstrumentCaptureStudioError,
+)
 from instrument_capture_studio.core.models import (
     CaptureResult,
     JobState,
@@ -60,11 +64,7 @@ class SequentialWorkflowRunner(CaptureWorkflow):
             step_result = result.steps[index]
 
             if self._cancel_check():
-                step_result.state = StepState.CANCELED
-                self._skip_remaining(result, index + 1)
-
-                result.state = JobState.CANCELED
-                result.finished_at = datetime.now(timezone.utc)
+                self._cancel_job(result, index)
                 return result
 
             step_result.state = StepState.RUNNING
@@ -78,16 +78,24 @@ class SequentialWorkflowRunner(CaptureWorkflow):
                 try:
                     self._executors[definition.name]()
 
-                    step_result.state = StepState.SUCCEEDED
+                except CaptureCanceledError as exc:
+                    step_result.state = StepState.CANCELED
+                    step_result.error = str(exc)
                     step_result.metadata["attempts"] = attempts
                     step_result.finished_at = datetime.now(timezone.utc)
-                    break
 
-                except Exception as exc:
+                    self._skip_remaining(result, index + 1)
+
+                    result.state = JobState.CANCELED
+                    result.finished_at = datetime.now(timezone.utc)
+                    return result
+
+                except InstrumentCaptureStudioError as exc:
                     if attempts > definition.max_retries:
                         step_result.state = StepState.FAILED
                         step_result.error = str(exc)
                         step_result.metadata["attempts"] = attempts
+                        step_result.metadata["error_type"] = type(exc).__name__
                         step_result.finished_at = datetime.now(timezone.utc)
 
                         self._skip_remaining(result, index + 1)
@@ -96,9 +104,29 @@ class SequentialWorkflowRunner(CaptureWorkflow):
                         result.finished_at = datetime.now(timezone.utc)
                         return result
 
+                else:
+                    step_result.state = StepState.SUCCEEDED
+                    step_result.metadata["attempts"] = attempts
+                    step_result.finished_at = datetime.now(timezone.utc)
+                    break
+
         result.state = JobState.SUCCEEDED
         result.finished_at = datetime.now(timezone.utc)
         return result
+
+    def _cancel_job(
+        self,
+        result: CaptureResult,
+        current_index: int,
+    ) -> None:
+        current_step = result.steps[current_index]
+        current_step.state = StepState.CANCELED
+        current_step.finished_at = datetime.now(timezone.utc)
+
+        self._skip_remaining(result, current_index + 1)
+
+        result.state = JobState.CANCELED
+        result.finished_at = datetime.now(timezone.utc)
 
     @staticmethod
     def _skip_remaining(

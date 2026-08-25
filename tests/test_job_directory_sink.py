@@ -108,3 +108,68 @@ def test_job_directory_sink_separates_jobs(
         / "job-b"
         / "metadata.json"
     ).is_file()
+
+
+def test_job_directory_sink_writes_spectrum_csv(
+    tmp_path,
+):
+    from instrument_capture_studio.core.results import (
+        SpectrumResult,
+    )
+
+    sink = JobDirectoryResultSink(
+        tmp_path,
+        clock=fixed_clock,
+    )
+
+    context = CaptureContext(
+        spectrum=SpectrumResult(
+            frequencies_hz=[
+                500e6,
+                600e6,
+            ],
+            amplitudes_dbm=[
+                -80.0,
+                -40.0,
+            ],
+        )
+    )
+
+    output_files = sink.save(
+        "job-spectrum",
+        context,
+    )
+
+    root = (
+        tmp_path
+        / "2026-08-25"
+        / "job-spectrum"
+    )
+
+    metadata_path = (
+        root
+        / "metadata.json"
+    )
+
+    spectrum_path = (
+        root
+        / "spectrum.csv"
+    )
+
+    assert metadata_path.is_file()
+    assert spectrum_path.is_file()
+
+    assert output_files == (
+        str(metadata_path),
+        str(spectrum_path),
+    )
+
+    lines = spectrum_path.read_text(
+        encoding="utf-8"
+    ).splitlines()
+
+    assert lines == [
+        "frequency_hz,amplitude_dbm",
+        "500000000.0,-80.0",
+        "600000000.0,-40.0",
+    ]

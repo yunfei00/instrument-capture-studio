@@ -9,6 +9,9 @@ from instrument_capture_studio.data.metadata import (
     build_capture_metadata,
     write_capture_metadata,
 )
+from instrument_capture_studio.data.spectrum_csv import (
+    write_spectrum_csv,
+)
 from instrument_capture_studio.workflows.context import (
     CaptureContext,
 )
@@ -65,6 +68,22 @@ class JobDirectoryResultSink:
             metadata,
         )
 
-        return (
+        output_files = [
             str(layout.metadata_path),
+        ]
+
+        if context.spectrum is not None:
+            write_spectrum_csv(
+                layout.spectrum_csv_path,
+                context.spectrum,
+            )
+
+            output_files.append(
+                str(
+                    layout.spectrum_csv_path
+                )
+            )
+
+        return tuple(
+            output_files
         )

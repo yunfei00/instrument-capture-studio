@@ -11,6 +11,7 @@ from instrument_capture_studio.workflows.combined import (
     CombinedCaptureWorkflow,
 )
 from instrument_capture_studio.workflows.result_sink import (
+    CaptureJobManifestSink,
     CaptureResultSink,
 )
 
@@ -26,6 +27,7 @@ def run_combined_capture(
     fsw_timeout_s: float | None = None,
     cancel_check: CancelCheck | None = None,
     result_sink: CaptureResultSink | None = None,
+    job_manifest_sink: CaptureJobManifestSink | None = None,
 ) -> CaptureResult:
     """
     连接两台仪表并执行一次完整联合采集。
@@ -88,3 +90,11 @@ def run_combined_capture(
             result.metadata[
                 "disconnect_errors"
             ] = disconnect_errors
+
+        if (
+            result is not None
+            and job_manifest_sink is not None
+        ):
+            job_manifest_sink.save_job(
+                result
+            )

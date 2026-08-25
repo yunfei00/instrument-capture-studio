@@ -322,3 +322,75 @@ def test_job_directory_sink_writes_complete_data_set(
         str(path)
         for path in expected
     )
+
+
+def test_job_directory_sink_writes_job_manifest(
+    tmp_path,
+):
+    from datetime import (
+        datetime,
+        timezone,
+    )
+
+    from instrument_capture_studio.core.models import (
+        CaptureResult,
+        JobState,
+    )
+    from instrument_capture_studio.data.job_manifest import (
+        load_job_manifest,
+    )
+
+    sink = JobDirectoryResultSink(
+        tmp_path,
+    )
+
+    result = CaptureResult(
+        job_id="job-manifest",
+        state=JobState.FAILED,
+        started_at=datetime(
+            2026,
+            8,
+            25,
+            9,
+            0,
+            tzinfo=timezone.utc,
+        ),
+        finished_at=datetime(
+            2026,
+            8,
+            25,
+            9,
+            0,
+            5,
+            tzinfo=timezone.utc,
+        ),
+    )
+
+    path = sink.save_job(
+        result
+    )
+
+    manifest_path = (
+        tmp_path
+        / "2026-08-25"
+        / "job-manifest"
+        / "job.json"
+    )
+
+    assert path == str(
+        manifest_path
+    )
+
+    assert manifest_path.is_file()
+
+    manifest = load_job_manifest(
+        manifest_path
+    )
+
+    assert manifest[
+        "job_id"
+    ] == "job-manifest"
+
+    assert manifest[
+        "state"
+    ] == "failed"

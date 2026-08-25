@@ -227,3 +227,127 @@ def test_combined_capture_script_has_cli_help():
         "--dsox-resource"
         in completed.stdout
     )
+
+
+class RecordingJobManifestSink:
+    def __init__(self):
+        self.results = []
+
+    def save_job(
+        self,
+        result,
+    ):
+        self.results.append(
+            result
+        )
+
+        return (
+            f"memory://{result.job_id}/job.json"
+        )
+
+
+def test_app_records_successful_job_manifest():
+    calls = []
+
+    manifest_sink = (
+        RecordingJobManifestSink()
+    )
+
+    result = run_combined_capture(
+        FakeSpectrumAnalyzer(
+            calls
+        ),
+        FakeOscilloscope(
+            calls
+        ),
+        job_id="job-manifest-success",
+        job_manifest_sink=manifest_sink,
+    )
+
+    assert (
+        result.state
+        == JobState.SUCCEEDED
+    )
+
+    assert manifest_sink.results == [
+        result
+    ]
+
+
+def test_app_records_failed_job_manifest():
+    from instrument_capture_studio.core.exceptions import (
+        InstrumentCommunicationError,
+    )
+
+    class FailingSpectrumAnalyzer(
+        FakeSpectrumAnalyzer
+    ):
+        def acquire_spectrum(
+            self,
+            *,
+            timeout_s=None,
+            cancel_check=None,
+        ):
+            raise InstrumentCommunicationError(
+                "FSW communication failed"
+            )
+
+    calls = []
+
+    manifest_sink = (
+        RecordingJobManifestSink()
+    )
+
+    result = run_combined_capture(
+        FailingSpectrumAnalyzer(
+            calls
+        ),
+        FakeOscilloscope(
+            calls
+        ),
+        job_id="job-manifest-failed",
+        job_manifest_sink=manifest_sink,
+    )
+
+    assert (
+        result.state
+        == JobState.FAILED
+    )
+
+    assert manifest_sink.results == [
+        result
+    ]
+
+    assert (
+        result.steps[0].error
+        == "FSW communication failed"
+    )
+
+
+def test_app_records_canceled_job_manifest():
+    calls = []
+
+    manifest_sink = (
+        RecordingJobManifestSink()
+    )
+
+    result = run_combined_capture(
+        FakeSpectrumAnalyzer(
+            calls
+        ),
+        FakeOscilloscope(
+            calls
+        ),
+        job_id="job-manifest-canceled",
+        cancel_check=lambda: True,
+        job_manifest_sink=manifest_sink,
+    )
+
+    assert (
+        result.state
+        == JobState.CANCELED
+    )
+
+    assert manifest_sink.results == [
+        result
+    ]

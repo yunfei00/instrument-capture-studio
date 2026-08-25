@@ -38,6 +38,12 @@ def test_job_layout_builds_expected_paths(
     )
 
     assert (
+        layout.job_manifest_path
+        == expected_root
+        / "job.json"
+    )
+
+    assert (
         layout.spectrum_csv_path
         == expected_root
         / "spectrum.csv"

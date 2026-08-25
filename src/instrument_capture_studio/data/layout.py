@@ -71,6 +71,15 @@ class JobDataLayout:
         )
 
     @property
+    def job_manifest_path(
+        self,
+    ) -> Path:
+        return (
+            self.job_directory
+            / "job.json"
+        )
+
+    @property
     def spectrum_csv_path(
         self,
     ) -> Path:

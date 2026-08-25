@@ -2,6 +2,13 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+from instrument_capture_studio.core.models import (
+    CaptureResult,
+)
+from instrument_capture_studio.data.job_manifest import (
+    build_job_manifest,
+    write_job_manifest,
+)
 from instrument_capture_studio.data.layout import (
     JobDataLayout,
 )
@@ -125,4 +132,47 @@ class JobDirectoryResultSink:
 
         return tuple(
             output_files
+        )
+
+    def save_job(
+        self,
+        result: CaptureResult,
+    ) -> str:
+        """
+        保存最终 Job 执行清单。
+
+        使用 Job started_at 的本地日期，
+        保证运行跨时区时目录日期语义明确。
+        """
+
+        if result.started_at is None:
+            captured_at = self._clock()
+        elif result.started_at.tzinfo is None:
+            captured_at = result.started_at
+        else:
+            captured_at = (
+                result.started_at.astimezone()
+            )
+
+        layout = JobDataLayout.build(
+            self._root,
+            result.job_id,
+            capture_date=(
+                captured_at.date()
+            ),
+        )
+
+        layout.create_directories()
+
+        manifest = build_job_manifest(
+            result
+        )
+
+        write_job_manifest(
+            layout.job_manifest_path,
+            manifest,
+        )
+
+        return str(
+            layout.job_manifest_path
         )

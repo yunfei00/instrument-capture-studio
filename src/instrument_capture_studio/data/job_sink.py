@@ -12,6 +12,9 @@ from instrument_capture_studio.data.metadata import (
 from instrument_capture_studio.data.spectrum_csv import (
     write_spectrum_csv,
 )
+from instrument_capture_studio.data.waveform_csv import (
+    write_waveform_csv,
+)
 from instrument_capture_studio.workflows.context import (
     CaptureContext,
 )
@@ -81,6 +84,18 @@ class JobDirectoryResultSink:
             output_files.append(
                 str(
                     layout.spectrum_csv_path
+                )
+            )
+
+        if context.waveform is not None:
+            write_waveform_csv(
+                layout.waveform_csv_path,
+                context.waveform,
+            )
+
+            output_files.append(
+                str(
+                    layout.waveform_csv_path
                 )
             )
 

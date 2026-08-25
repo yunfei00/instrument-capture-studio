@@ -173,3 +173,70 @@ def test_job_directory_sink_writes_spectrum_csv(
         "500000000.0,-80.0",
         "600000000.0,-40.0",
     ]
+
+
+def test_job_directory_sink_writes_waveform_csv(
+    tmp_path,
+):
+    from instrument_capture_studio.core.results import (
+        WaveformResult,
+    )
+
+    sink = JobDirectoryResultSink(
+        tmp_path,
+        clock=fixed_clock,
+    )
+
+    context = CaptureContext(
+        waveform=WaveformResult(
+            channel="CH1",
+            time_s=[
+                0.0,
+                1e-6,
+            ],
+            voltage_v=[
+                0.1,
+                0.2,
+            ],
+            sample_rate_hz=1e6,
+        )
+    )
+
+    output_files = sink.save(
+        "job-waveform",
+        context,
+    )
+
+    root = (
+        tmp_path
+        / "2026-08-25"
+        / "job-waveform"
+    )
+
+    metadata_path = (
+        root
+        / "metadata.json"
+    )
+
+    waveform_path = (
+        root
+        / "waveform.csv"
+    )
+
+    assert metadata_path.is_file()
+    assert waveform_path.is_file()
+
+    assert output_files == (
+        str(metadata_path),
+        str(waveform_path),
+    )
+
+    lines = waveform_path.read_text(
+        encoding="utf-8"
+    ).splitlines()
+
+    assert lines == [
+        "time_s,voltage_v",
+        "0.0,0.1",
+        "1e-06,0.2",
+    ]

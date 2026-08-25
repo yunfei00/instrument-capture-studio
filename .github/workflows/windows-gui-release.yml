@@ -18,6 +18,10 @@ on:
       - "src/instrument_capture_studio/data/**"
       - "tests/**"
 
+concurrency:
+  group: windows-gui-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 

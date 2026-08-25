@@ -266,6 +266,11 @@ def test_combined_capture_script_has_cli_help():
         in completed.stdout
     )
 
+    assert (
+        "--output-root"
+        in completed.stdout
+    )
+
 
 class RecordingJobManifestSink:
     def __init__(self):
@@ -596,4 +601,66 @@ def test_app_injects_instrument_snapshots():
             "instruments"
         ]
         == instruments
+    )
+
+
+def test_app_begins_shared_job_sink_once():
+    class RecordingLifecycleSink:
+        def __init__(self):
+            self.begin_calls = []
+
+        def begin_job(
+            self,
+            job_id,
+            started_at,
+        ):
+            self.begin_calls.append(
+                (
+                    job_id,
+                    started_at,
+                )
+            )
+
+        def save(
+            self,
+            job_id,
+            context,
+        ):
+            return ()
+
+        def save_job(
+            self,
+            result,
+        ):
+            return (
+                f"memory://{result.job_id}/job.json"
+            )
+
+    calls = []
+    sink = RecordingLifecycleSink()
+
+    result = run_combined_capture(
+        FakeSpectrumAnalyzer(
+            calls
+        ),
+        FakeOscilloscope(
+            calls
+        ),
+        job_id="job-lifecycle",
+        result_sink=sink,
+        job_manifest_sink=sink,
+    )
+
+    assert (
+        result.state
+        == JobState.SUCCEEDED
+    )
+
+    assert len(
+        sink.begin_calls
+    ) == 1
+
+    assert (
+        sink.begin_calls[0][0]
+        == "job-lifecycle"
     )

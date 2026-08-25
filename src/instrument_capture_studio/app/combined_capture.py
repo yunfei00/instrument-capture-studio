@@ -44,6 +44,39 @@ def _instrument_snapshot(
     }
 
 
+def _begin_job_storage(
+    job_id: str,
+    started_at: datetime,
+    *sinks,
+) -> None:
+    """通知支持 Job 生命周期的 Sink 锁定任务目录。"""
+
+    seen = set()
+
+    for sink in sinks:
+        if sink is None:
+            continue
+
+        identity = id(sink)
+
+        if identity in seen:
+            continue
+
+        seen.add(identity)
+
+        begin_job = getattr(
+            sink,
+            "begin_job",
+            None,
+        )
+
+        if callable(begin_job):
+            begin_job(
+                job_id,
+                started_at,
+            )
+
+
 def run_combined_capture(
     spectrum_analyzer: SpectrumAnalyzerAdapter,
     oscilloscope: OscilloscopeAdapter,
@@ -68,10 +101,20 @@ def run_combined_capture(
         timezone.utc
     )
 
-    stage = "connect_spectrum_analyzer"
-    stage_instrument = spectrum_analyzer
+    stage = "prepare_job_storage"
+    stage_instrument = None
 
     try:
+        _begin_job_storage(
+            job_id,
+            application_started_at,
+            result_sink,
+            job_manifest_sink,
+        )
+
+        stage = "connect_spectrum_analyzer"
+        stage_instrument = spectrum_analyzer
+
         spectrum_analyzer.connect()
         connected.append(
             spectrum_analyzer

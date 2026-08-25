@@ -32,3 +32,6 @@ logs/
 
 # Local configuration
 .env
+
+# Capture data
+data/

@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from instrument_capture_studio.core.models import (
@@ -38,8 +38,11 @@ class JobDirectoryResultSink:
     """
     将 Capture Job 保存到标准数据目录。
 
-    Phase 5 当前只写 metadata.json。
-    后续会在这里继续加入 CSV / NPZ。
+    负责持久化：
+    - metadata.json
+    - spectrum CSV / NPZ
+    - waveform CSV / NPZ
+    - job.json
     """
 
     def __init__(
@@ -54,6 +57,29 @@ class JobDirectoryResultSink:
             or datetime.now
         )
 
+        self._job_dates: dict[
+            str,
+            date,
+        ] = {}
+
+    def begin_job(
+        self,
+        job_id: str,
+        started_at: datetime,
+    ) -> None:
+        """锁定本次 Job 使用的数据目录日期。"""
+
+        if started_at.tzinfo is None:
+            local_started_at = started_at
+        else:
+            local_started_at = (
+                started_at.astimezone()
+            )
+
+        self._job_dates[
+            job_id
+        ] = local_started_at.date()
+
     def save(
         self,
         job_id: str,
@@ -65,7 +91,10 @@ class JobDirectoryResultSink:
             self._root,
             job_id,
             capture_date=(
-                captured_at.date()
+                self._job_dates.get(
+                    job_id,
+                    captured_at.date(),
+                )
             ),
         )
 
@@ -158,7 +187,10 @@ class JobDirectoryResultSink:
             self._root,
             result.job_id,
             capture_date=(
-                captured_at.date()
+                self._job_dates.get(
+                    result.job_id,
+                    captured_at.date(),
+                )
             ),
         )
 

@@ -104,6 +104,19 @@ def build_parser():
         default=None,
     )
 
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=(
+            REPO_ROOT
+            / "data"
+        ),
+        help=(
+            "Capture data root directory. "
+            "Default: <repo>/data"
+        ),
+    )
+
     # FSW
     parser.add_argument(
         "--center-hz",
@@ -213,6 +226,10 @@ def main() -> int:
         JobState,
     )
 
+    from instrument_capture_studio.data.job_sink import (
+        JobDirectoryResultSink,
+    )
+
     job_id = (
         args.job_id
         or f"capture-{uuid4().hex[:12]}"
@@ -292,6 +309,23 @@ def main() -> int:
         args.dsox_resource,
     )
 
+    output_root = (
+        args.output_root
+        .expanduser()
+        .resolve()
+    )
+
+    result_sink = (
+        JobDirectoryResultSink(
+            output_root
+        )
+    )
+
+    print(
+        "Output root:",
+        output_root,
+    )
+
     try:
         result = run_combined_capture(
             fsw,
@@ -300,6 +334,8 @@ def main() -> int:
             fsw_timeout_s=(
                 args.fsw_step_timeout_s
             ),
+            result_sink=result_sink,
+            job_manifest_sink=result_sink,
         )
 
     except Exception as exc:

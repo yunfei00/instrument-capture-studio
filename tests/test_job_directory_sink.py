@@ -394,3 +394,91 @@ def test_job_directory_sink_writes_job_manifest(
     assert manifest[
         "state"
     ] == "failed"
+
+
+def test_job_directory_sink_keeps_job_in_start_date_directory(
+    tmp_path,
+):
+    from datetime import datetime
+
+    from instrument_capture_studio.core.models import (
+        CaptureResult,
+        JobState,
+    )
+
+    def after_midnight_clock():
+        return datetime(
+            2026,
+            8,
+            26,
+            0,
+            0,
+            10,
+        )
+
+    sink = JobDirectoryResultSink(
+        tmp_path,
+        clock=after_midnight_clock,
+    )
+
+    sink.begin_job(
+        "job-midnight",
+        datetime(
+            2026,
+            8,
+            25,
+            23,
+            59,
+            50,
+        ),
+    )
+
+    sink.save(
+        "job-midnight",
+        CaptureContext(),
+    )
+
+    sink.save_job(
+        CaptureResult(
+            job_id="job-midnight",
+            state=JobState.SUCCEEDED,
+            started_at=datetime(
+                2026,
+                8,
+                26,
+                0,
+                0,
+                1,
+            ),
+            finished_at=datetime(
+                2026,
+                8,
+                26,
+                0,
+                0,
+                5,
+            ),
+        )
+    )
+
+    root = (
+        tmp_path
+        / "2026-08-25"
+        / "job-midnight"
+    )
+
+    assert (
+        root
+        / "metadata.json"
+    ).is_file()
+
+    assert (
+        root
+        / "job.json"
+    ).is_file()
+
+    assert not (
+        tmp_path
+        / "2026-08-26"
+        / "job-midnight"
+    ).exists()

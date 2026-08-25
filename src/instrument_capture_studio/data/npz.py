@@ -79,3 +79,75 @@ def write_waveform_npz(
             dtype=np.float64,
         ),
     )
+
+
+def load_spectrum_npz(
+    path: Path,
+    *,
+    metadata: dict | None = None,
+) -> SpectrumResult:
+    """从 NPZ 重新加载 SpectrumResult。"""
+
+    with np.load(
+        Path(path),
+        allow_pickle=False,
+    ) as data:
+        frequency_hz = (
+            data["frequency_hz"]
+            .astype(np.float64)
+            .tolist()
+        )
+
+        amplitude_dbm = (
+            data["amplitude_dbm"]
+            .astype(np.float64)
+            .tolist()
+        )
+
+    return SpectrumResult(
+        frequencies_hz=frequency_hz,
+        amplitudes_dbm=amplitude_dbm,
+        metadata=(
+            dict(metadata)
+            if metadata is not None
+            else {}
+        ),
+    )
+
+
+def load_waveform_npz(
+    path: Path,
+    *,
+    channel: str,
+    sample_rate_hz: float | None = None,
+    metadata: dict | None = None,
+) -> WaveformResult:
+    """从 NPZ 重新加载 WaveformResult。"""
+
+    with np.load(
+        Path(path),
+        allow_pickle=False,
+    ) as data:
+        time_s = (
+            data["time_s"]
+            .astype(np.float64)
+            .tolist()
+        )
+
+        voltage_v = (
+            data["voltage_v"]
+            .astype(np.float64)
+            .tolist()
+        )
+
+    return WaveformResult(
+        channel=channel,
+        time_s=time_s,
+        voltage_v=voltage_v,
+        sample_rate_hz=sample_rate_hz,
+        metadata=(
+            dict(metadata)
+            if metadata is not None
+            else {}
+        ),
+    )

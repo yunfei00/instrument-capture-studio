@@ -128,23 +128,50 @@ Save Result
 
 ## Phase 5 - 数据管理
 
-目标：
+状态：
+
+**SOFTWARE COMPLETE**
+
+已完成：
 
 - CSV 保存
 - NPZ 保存
-- 元数据保存
+- metadata.json 元数据保存
+- job.json Job Manifest
 - 文件命名规则
-- 采集目录结构
+- 标准采集目录结构
 - Job ID
-- 仪表信息记录
-- 参数记录
-- 时间记录
-- 错误记录
-- 数据重新加载
+- 仪表身份信息记录
+- 仪表配置参数快照
+- Job / Step 时间记录
+- Job / Step 错误记录
+- 成功 / 失败 / 取消状态持久化
+- 连接阶段失败记录
+- Spectrum / Waveform 数据重新加载
+- CaptureContext 离线恢复
+- CLI 真实磁盘保存入口
+- 同一 Job 跨午夜保持单一目录
+- 运行时 data 目录 Git 忽略规则
+
+数据目录：
+
+YYYY-MM-DD/
+└── job_id/
+    ├── job.json
+    ├── metadata.json
+    ├── spectrum.csv
+    ├── spectrum.npz
+    ├── waveform.csv
+    └── waveform.npz
 
 结果：
 
-一次采集产生完整、可追踪的数据目录。
+一次采集可以产生完整、可追踪、可重新加载的数据目录。
+
+Phase 5 软件功能完成。
+
+DSO-X 3034A 真机及 FSW + DSO-X 双仪表完整数据目录，
+随 Phase 4 / Phase 8 的硬件验收统一补测。
 
 ---
 

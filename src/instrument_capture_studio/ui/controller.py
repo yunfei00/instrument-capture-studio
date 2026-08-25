@@ -26,6 +26,7 @@ class HardwareWorker(QObject):
     instrument_tested = Signal(str, object)
     instrument_test_failed = Signal(str, str, str)
     capture_started = Signal(str)
+    capture_progress = Signal(str, str, int, int)
     capture_finished = Signal(object)
     capture_failed = Signal(str, str)
 
@@ -90,10 +91,25 @@ class HardwareWorker(QObject):
         self.capture_started.emit(job_id)
         self.log.emit(f"开始联合采集：{job_id}")
 
+        def report_progress(
+            step_name: str,
+            state: str,
+            completed_steps: int,
+            step_count: int,
+        ) -> None:
+            self.capture_progress.emit(
+                step_name,
+                state,
+                completed_steps,
+                step_count,
+            )
+
         try:
             fsw = build_fsw_adapter(fsw_settings)
             dsox = build_dsox_adapter(dsox_settings)
-            sink = JobDirectoryResultSink(Path(output_root).expanduser().resolve())
+            sink = JobDirectoryResultSink(
+                Path(output_root).expanduser().resolve()
+            )
 
             result = run_combined_capture(
                 fsw,
@@ -103,6 +119,7 @@ class HardwareWorker(QObject):
                 cancel_check=self._cancel_event.is_set,
                 result_sink=sink,
                 job_manifest_sink=sink,
+                progress_callback=report_progress,
             )
         except Exception as exc:
             self.capture_failed.emit(type(exc).__name__, str(exc))
@@ -118,6 +135,7 @@ class HardwareController(QObject):
     instrument_tested = Signal(str, object)
     instrument_test_failed = Signal(str, str, str)
     capture_started = Signal(str)
+    capture_progress = Signal(str, str, int, int)
     capture_finished = Signal(object)
     capture_failed = Signal(str, str)
 
@@ -140,6 +158,7 @@ class HardwareController(QObject):
         self._worker.instrument_tested.connect(self.instrument_tested)
         self._worker.instrument_test_failed.connect(self.instrument_test_failed)
         self._worker.capture_started.connect(self.capture_started)
+        self._worker.capture_progress.connect(self.capture_progress)
         self._worker.capture_finished.connect(self.capture_finished)
         self._worker.capture_failed.connect(self.capture_failed)
 
@@ -157,7 +176,11 @@ class HardwareController(QObject):
         dsox_settings: DSOXRuntimeSettings,
         output_root: str,
     ) -> None:
-        self._capture_requested.emit(fsw_settings, dsox_settings, output_root)
+        self._capture_requested.emit(
+            fsw_settings,
+            dsox_settings,
+            output_root,
+        )
 
     def cancel_capture(self) -> None:
         self._cancel_event.set()

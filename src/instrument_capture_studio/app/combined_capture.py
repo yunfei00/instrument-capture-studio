@@ -5,12 +5,10 @@ from instrument_capture_studio.adapters.interfaces import (
     OscilloscopeAdapter,
     SpectrumAnalyzerAdapter,
 )
-from instrument_capture_studio.core.models import (
-    CaptureResult,
-    JobState,
-)
+from instrument_capture_studio.core.models import CaptureResult, JobState
 from instrument_capture_studio.workflows.combined import (
     CombinedCaptureWorkflow,
+    ProgressCallback,
 )
 from instrument_capture_studio.workflows.result_sink import (
     CaptureJobManifestSink,
@@ -21,26 +19,19 @@ from instrument_capture_studio.workflows.result_sink import (
 CancelCheck = Callable[[], bool]
 
 
-def _instrument_snapshot(
-    adapter,
-) -> dict[str, object]:
+def _instrument_snapshot(adapter) -> dict[str, object]:
     """读取一次不可变的仪表身份和配置快照。"""
 
     status = adapter.get_status()
-
     return {
         "name": status.name,
         "address": status.address,
         "state": status.state.value,
         "model": status.model,
         "serial_number": status.serial_number,
-        "firmware_version": (
-            status.firmware_version
-        ),
+        "firmware_version": status.firmware_version,
         "last_error": status.last_error,
-        "configuration": dict(
-            adapter.get_configuration()
-        ),
+        "configuration": dict(adapter.get_configuration()),
     }
 
 
@@ -52,29 +43,18 @@ def _begin_job_storage(
     """通知支持 Job 生命周期的 Sink 锁定任务目录。"""
 
     seen = set()
-
     for sink in sinks:
         if sink is None:
             continue
 
         identity = id(sink)
-
         if identity in seen:
             continue
-
         seen.add(identity)
 
-        begin_job = getattr(
-            sink,
-            "begin_job",
-            None,
-        )
-
+        begin_job = getattr(sink, "begin_job", None)
         if callable(begin_job):
-            begin_job(
-                job_id,
-                started_at,
-            )
+            begin_job(job_id, started_at)
 
 
 def run_combined_capture(
@@ -86,20 +66,17 @@ def run_combined_capture(
     cancel_check: CancelCheck | None = None,
     result_sink: CaptureResultSink | None = None,
     job_manifest_sink: CaptureJobManifestSink | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> CaptureResult:
     """
     连接两台仪表并执行一次完整联合采集。
 
-    连接生命周期属于应用层：
-    connect -> workflow -> disconnect。
+    连接生命周期属于应用层：connect -> workflow -> disconnect。
     """
 
     connected = []
     result: CaptureResult | None = None
-
-    application_started_at = datetime.now(
-        timezone.utc
-    )
+    application_started_at = datetime.now(timezone.utc)
 
     stage = "prepare_job_storage"
     stage_instrument = None
@@ -114,71 +91,43 @@ def run_combined_capture(
 
         stage = "connect_spectrum_analyzer"
         stage_instrument = spectrum_analyzer
-
         spectrum_analyzer.connect()
-        connected.append(
-            spectrum_analyzer
-        )
+        connected.append(spectrum_analyzer)
 
         stage = "connect_oscilloscope"
         stage_instrument = oscilloscope
-
         oscilloscope.connect()
-        connected.append(
-            oscilloscope
-        )
+        connected.append(oscilloscope)
 
         stage = "snapshot_spectrum_analyzer"
         stage_instrument = spectrum_analyzer
-
-        spectrum_snapshot = (
-            _instrument_snapshot(
-                spectrum_analyzer
-            )
-        )
+        spectrum_snapshot = _instrument_snapshot(spectrum_analyzer)
 
         stage = "snapshot_oscilloscope"
         stage_instrument = oscilloscope
-
-        oscilloscope_snapshot = (
-            _instrument_snapshot(
-                oscilloscope
-            )
-        )
+        oscilloscope_snapshot = _instrument_snapshot(oscilloscope)
 
         instrument_metadata = {
             "instruments": {
-                "spectrum_analyzer": (
-                    spectrum_snapshot
-                ),
-                "oscilloscope": (
-                    oscilloscope_snapshot
-                ),
+                "spectrum_analyzer": spectrum_snapshot,
+                "oscilloscope": oscilloscope_snapshot,
             }
         }
 
         stage = "workflow_setup"
         stage_instrument = None
-
         workflow = CombinedCaptureWorkflow(
-            spectrum_analyzer=(
-                spectrum_analyzer
-            ),
+            spectrum_analyzer=spectrum_analyzer,
             oscilloscope=oscilloscope,
             fsw_timeout_s=fsw_timeout_s,
             cancel_check=cancel_check,
             result_sink=result_sink,
-            initial_metadata=(
-                instrument_metadata
-            ),
+            initial_metadata=instrument_metadata,
+            progress_callback=progress_callback,
         )
 
         stage = "workflow_run"
-
-        result = workflow.run(
-            job_id
-        )
-
+        result = workflow.run(job_id)
         return result
 
     except Exception as exc:
@@ -187,9 +136,7 @@ def run_combined_capture(
                 job_id=job_id,
                 state=JobState.FAILED,
                 started_at=application_started_at,
-                finished_at=datetime.now(
-                    timezone.utc
-                ),
+                finished_at=datetime.now(timezone.utc),
                 metadata={
                     "application_error": {
                         "stage": stage,
@@ -199,36 +146,24 @@ def run_combined_capture(
                             else getattr(
                                 stage_instrument,
                                 "name",
-                                type(
-                                    stage_instrument
-                                ).__name__,
+                                type(stage_instrument).__name__,
                             )
                         ),
                         "address": (
                             None
                             if stage_instrument is None
-                            else getattr(
-                                stage_instrument,
-                                "address",
-                                None,
-                            )
+                            else getattr(stage_instrument, "address", None)
                         ),
-                        "error_type": (
-                            type(exc).__name__
-                        ),
+                        "error_type": type(exc).__name__,
                         "message": str(exc),
                     },
                 },
             )
-
         raise
 
     finally:
         disconnect_errors = []
-
-        for adapter in reversed(
-            connected
-        ):
+        for adapter in reversed(connected):
             try:
                 adapter.disconnect()
             except Exception as exc:
@@ -240,18 +175,8 @@ def run_combined_capture(
                     )
                 )
 
-        if (
-            result is not None
-            and disconnect_errors
-        ):
-            result.metadata[
-                "disconnect_errors"
-            ] = disconnect_errors
+        if result is not None and disconnect_errors:
+            result.metadata["disconnect_errors"] = disconnect_errors
 
-        if (
-            result is not None
-            and job_manifest_sink is not None
-        ):
-            job_manifest_sink.save_job(
-                result
-            )
+        if result is not None and job_manifest_sink is not None:
+            job_manifest_sink.save_job(result)

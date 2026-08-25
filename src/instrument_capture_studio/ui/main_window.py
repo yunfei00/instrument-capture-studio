@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QCloseEvent, QFont
 from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMessageBox,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -27,17 +28,20 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from instrument_capture_studio.app.runtime import (
+    DSOXRuntimeSettings,
+    FSWRuntimeSettings,
+)
+from instrument_capture_studio.ui.controller import HardwareController
+
 
 class MainWindow(QMainWindow):
-    """Phase 6 commercial desktop UI shell.
-
-    Hardware actions are intentionally not wired in the first UI skeleton.
-    The controls and object names are stable integration points for the next
-    Phase 6 steps.
-    """
+    """Commercial desktop UI for one DSO-X + FSW capture station."""
 
     def __init__(self) -> None:
         super().__init__()
+        self._capture_busy = False
+        self._controller = HardwareController(self)
 
         self.setWindowTitle("Instrument Capture Studio")
         self.resize(1280, 820)
@@ -45,7 +49,7 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._apply_style()
-        self._wire_local_actions()
+        self._wire_actions()
         self._refresh_data_tree()
 
     def _build_ui(self) -> None:
@@ -65,8 +69,7 @@ class MainWindow(QMainWindow):
 
         root.addWidget(content_splitter, 1)
         self.setCentralWidget(central)
-
-        self.statusBar().showMessage("就绪 · Phase 6 Alpha UI")
+        self.statusBar().showMessage("就绪 · Phase 6 Alpha")
 
     def _build_header(self) -> QWidget:
         frame = QFrame()
@@ -114,18 +117,15 @@ class MainWindow(QMainWindow):
         self.fsw_resource_edit.setPlaceholderText(
             "例如 TCPIP0::192.168.1.10::inst0::INSTR"
         )
-        self.fsw_status_label = self._status_label("未连接")
-        self.fsw_connect_button = QPushButton("连接")
+        self.fsw_status_label = self._status_label("未测试")
+        self.fsw_connect_button = QPushButton("测试连接")
         self.fsw_connect_button.setObjectName("fswConnectButton")
-        self.fsw_disconnect_button = QPushButton("断开")
-        self.fsw_disconnect_button.setEnabled(False)
 
         grid.addWidget(QLabel("VISA 地址"), 0, 0)
         grid.addWidget(self.fsw_resource_edit, 0, 1, 1, 3)
         grid.addWidget(QLabel("状态"), 1, 0)
         grid.addWidget(self.fsw_status_label, 1, 1)
-        grid.addWidget(self.fsw_connect_button, 1, 2)
-        grid.addWidget(self.fsw_disconnect_button, 1, 3)
+        grid.addWidget(self.fsw_connect_button, 1, 2, 1, 2)
 
         params = QWidget()
         form = QFormLayout(params)
@@ -137,12 +137,14 @@ class MainWindow(QMainWindow):
         self.vbw_hz_edit = self._number_edit("1000000")
         self.trigger_source_combo = QComboBox()
         self.trigger_source_combo.addItems(["IMM", "EXT"])
+        self.fsw_timeout_edit = self._number_edit("30")
 
         form.addRow("中心频率 (Hz)", self.center_hz_edit)
         form.addRow("Span (Hz)", self.span_hz_edit)
         form.addRow("RBW (Hz)", self.rbw_hz_edit)
         form.addRow("VBW (Hz)", self.vbw_hz_edit)
         form.addRow("Trigger", self.trigger_source_combo)
+        form.addRow("Step Timeout (s)", self.fsw_timeout_edit)
         grid.addWidget(params, 2, 0, 1, 4)
         return group
 
@@ -155,18 +157,15 @@ class MainWindow(QMainWindow):
         self.dsox_resource_edit.setPlaceholderText(
             "例如 TCPIP0::192.168.1.20::inst0::INSTR"
         )
-        self.dsox_status_label = self._status_label("未连接")
-        self.dsox_connect_button = QPushButton("连接")
+        self.dsox_status_label = self._status_label("未测试")
+        self.dsox_connect_button = QPushButton("测试连接")
         self.dsox_connect_button.setObjectName("dsoxConnectButton")
-        self.dsox_disconnect_button = QPushButton("断开")
-        self.dsox_disconnect_button.setEnabled(False)
 
         grid.addWidget(QLabel("VISA 地址"), 0, 0)
         grid.addWidget(self.dsox_resource_edit, 0, 1, 1, 3)
         grid.addWidget(QLabel("状态"), 1, 0)
         grid.addWidget(self.dsox_status_label, 1, 1)
-        grid.addWidget(self.dsox_connect_button, 1, 2)
-        grid.addWidget(self.dsox_disconnect_button, 1, 3)
+        grid.addWidget(self.dsox_connect_button, 1, 2, 1, 2)
 
         params = QWidget()
         form = QFormLayout(params)
@@ -226,7 +225,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.stop_button, 1, 5)
 
         note = QLabel(
-            "Alpha 骨架：界面已建立；仪表连接与采集线程将在下一步接入。"
+            "连接测试在后台打开仪表并读取身份后自动断开；正式采集由 Capture Job 管理连接生命周期。"
         )
         note.setObjectName("alphaNote")
         note.setWordWrap(True)
@@ -267,24 +266,174 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 2)
         return splitter
 
-    def _wire_local_actions(self) -> None:
+    def _wire_actions(self) -> None:
         self.output_browse_button.clicked.connect(self._choose_output_root)
         self.open_data_button.clicked.connect(self._choose_output_root)
         self.refresh_data_button.clicked.connect(self._refresh_data_tree)
+        self.fsw_connect_button.clicked.connect(self._test_fsw_connection)
+        self.dsox_connect_button.clicked.connect(self._test_dsox_connection)
+        self.start_button.clicked.connect(self._start_capture)
+        self.stop_button.clicked.connect(self._stop_capture)
 
-        for button, instrument in (
-            (self.fsw_connect_button, "FSW"),
-            (self.dsox_connect_button, "DSO-X 3034A"),
-        ):
-            button.clicked.connect(
-                lambda _checked=False, name=instrument: self._log_pending_action(
-                    f"{name} 连接"
+        self._controller.log.connect(self._append_log)
+        self._controller.instrument_tested.connect(self._on_instrument_tested)
+        self._controller.instrument_test_failed.connect(
+            self._on_instrument_test_failed
+        )
+        self._controller.capture_started.connect(self._on_capture_started)
+        self._controller.capture_finished.connect(self._on_capture_finished)
+        self._controller.capture_failed.connect(self._on_capture_failed)
+
+    def _test_fsw_connection(self) -> None:
+        try:
+            settings = self._build_fsw_settings()
+        except ValueError as exc:
+            self._show_input_error(str(exc))
+            return
+
+        self.fsw_status_label.setText("测试中")
+        self.fsw_connect_button.setEnabled(False)
+        self._controller.test_fsw(settings)
+
+    def _test_dsox_connection(self) -> None:
+        try:
+            settings = self._build_dsox_settings()
+        except ValueError as exc:
+            self._show_input_error(str(exc))
+            return
+
+        self.dsox_status_label.setText("测试中")
+        self.dsox_connect_button.setEnabled(False)
+        self._controller.test_dsox(settings)
+
+    def _start_capture(self) -> None:
+        try:
+            fsw_settings = self._build_fsw_settings()
+            dsox_settings = self._build_dsox_settings()
+        except ValueError as exc:
+            self._show_input_error(str(exc))
+            return
+
+        output_root = self.output_root_edit.text().strip()
+        if not output_root:
+            self._show_input_error("数据目录不能为空")
+            return
+
+        self._set_capture_busy(True)
+        self.job_state_label.setText("STARTING")
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setFormat("正在启动采集…")
+        self._controller.start_capture(fsw_settings, dsox_settings, output_root)
+
+    def _stop_capture(self) -> None:
+        if not self._capture_busy:
+            return
+        self.job_state_label.setText("CANCELING")
+        self.progress_bar.setFormat("正在安全停止…")
+        self.stop_button.setEnabled(False)
+        self._controller.cancel_capture()
+
+    def _on_instrument_tested(self, key: str, payload: dict) -> None:
+        label, button = self._instrument_widgets(key)
+        label.setText("可用")
+        label.setToolTip(
+            "\n".join(
+                filter(
+                    None,
+                    [
+                        payload.get("model"),
+                        payload.get("serial_number"),
+                        payload.get("firmware_version"),
+                        payload.get("address"),
+                    ],
                 )
             )
-
-        self.start_button.clicked.connect(
-            lambda: self._log_pending_action("联合采集")
         )
+        button.setEnabled(not self._capture_busy)
+
+    def _on_instrument_test_failed(
+        self,
+        key: str,
+        error_type: str,
+        message: str,
+    ) -> None:
+        label, button = self._instrument_widgets(key)
+        label.setText("失败")
+        label.setToolTip(f"{error_type}: {message}")
+        button.setEnabled(not self._capture_busy)
+
+    def _on_capture_started(self, job_id: str) -> None:
+        self.job_state_label.setText("RUNNING")
+        self.progress_bar.setFormat(f"采集中 · {job_id}")
+        self._append_log(f"Job ID：{job_id}")
+        self.statusBar().showMessage(f"正在采集 · {job_id}")
+
+    def _on_capture_finished(self, result) -> None:
+        self._set_capture_busy(False)
+        state = result.state.value.upper()
+        self.job_state_label.setText(state)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(100 if state == "SUCCEEDED" else 0)
+        self.progress_bar.setFormat(state)
+
+        for step in result.steps:
+            line = f"{step.name}: {step.state.value}"
+            if step.error:
+                line += f" · {step.error}"
+            self._append_log(line)
+
+        if result.output_files:
+            self._append_log("输出文件：")
+            for path in result.output_files:
+                self._append_log(f"  {path}")
+
+        self._refresh_data_tree()
+        self.statusBar().showMessage(f"采集结束 · {state}", 8000)
+
+    def _on_capture_failed(self, error_type: str, message: str) -> None:
+        self._set_capture_busy(False)
+        self.job_state_label.setText("FAILED")
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFormat("FAILED")
+        self._append_log(f"FAILED · {error_type}: {message}")
+        self._refresh_data_tree()
+        self.statusBar().showMessage("采集失败", 8000)
+
+    def _build_fsw_settings(self) -> FSWRuntimeSettings:
+        return FSWRuntimeSettings(
+            resource=self.fsw_resource_edit.text().strip(),
+            center_frequency_hz=self._optional_float(self.center_hz_edit, "中心频率"),
+            span_hz=self._optional_float(self.span_hz_edit, "Span"),
+            rbw_hz=self._optional_float(self.rbw_hz_edit, "RBW"),
+            vbw_hz=self._optional_float(self.vbw_hz_edit, "VBW"),
+            trigger_source=self.trigger_source_combo.currentText(),
+            step_timeout_s=self._required_float(self.fsw_timeout_edit, "FSW Step Timeout"),
+        )
+
+    def _build_dsox_settings(self) -> DSOXRuntimeSettings:
+        return DSOXRuntimeSettings(
+            resource=self.dsox_resource_edit.text().strip(),
+            delay_source1=self.delay_source1_edit.text().strip(),
+            delay_source2=self.delay_source2_edit.text().strip(),
+            delay_edge1=self.delay_edge1_combo.currentText(),
+            delay_edge2=self.delay_edge2_combo.currentText(),
+            cycle_count_source=self.cycle_source_edit.text().strip(),
+            waveform_channel=self.waveform_channel_spin.value(),
+        )
+
+    def _set_capture_busy(self, busy: bool) -> None:
+        self._capture_busy = busy
+        self.start_button.setEnabled(not busy)
+        self.stop_button.setEnabled(busy)
+        self.fsw_connect_button.setEnabled(not busy)
+        self.dsox_connect_button.setEnabled(not busy)
+        self.output_browse_button.setEnabled(not busy)
+
+    def _instrument_widgets(self, key: str):
+        if key == "fsw":
+            return self.fsw_status_label, self.fsw_connect_button
+        return self.dsox_status_label, self.dsox_connect_button
 
     def _choose_output_root(self) -> None:
         selected = QFileDialog.getExistingDirectory(
@@ -303,8 +452,7 @@ class MainWindow(QMainWindow):
         root = Path(self.output_root_edit.text()).expanduser()
 
         if not root.exists():
-            item = QTreeWidgetItem(["暂无数据", str(root)])
-            self.data_tree.addTopLevelItem(item)
+            self.data_tree.addTopLevelItem(QTreeWidgetItem(["暂无数据", str(root)]))
             return
 
         entries = sorted(
@@ -319,17 +467,37 @@ class MainWindow(QMainWindow):
             if path.is_dir():
                 kind = "目录"
             else:
-                kind = f"{path.suffix.lstrip('.').upper() or 'FILE'} · {path.stat().st_size} B"
-            self.data_tree.addTopLevelItem(
-                QTreeWidgetItem([str(relative), kind])
-            )
-
-    def _log_pending_action(self, action: str) -> None:
-        self._append_log(f"{action}：将在 Phase 6 下一步接入真实控制逻辑。")
-        self.statusBar().showMessage(f"{action}尚未接入 · Alpha UI 骨架", 5000)
+                kind = (
+                    f"{path.suffix.lstrip('.').upper() or 'FILE'} · "
+                    f"{path.stat().st_size} B"
+                )
+            self.data_tree.addTopLevelItem(QTreeWidgetItem([str(relative), kind]))
 
     def _append_log(self, message: str) -> None:
         self.log_view.appendPlainText(message)
+
+    def _show_input_error(self, message: str) -> None:
+        QMessageBox.warning(self, "参数错误", message)
+
+    @staticmethod
+    def _optional_float(edit: QLineEdit, name: str) -> float | None:
+        text = edit.text().strip()
+        if not text:
+            return None
+        try:
+            return float(text)
+        except ValueError as exc:
+            raise ValueError(f"{name} 必须是数字") from exc
+
+    @staticmethod
+    def _required_float(edit: QLineEdit, name: str) -> float:
+        text = edit.text().strip()
+        if not text:
+            raise ValueError(f"{name} 不能为空")
+        try:
+            return float(text)
+        except ValueError as exc:
+            raise ValueError(f"{name} 必须是数字") from exc
 
     @staticmethod
     def _number_edit(value: str) -> QLineEdit:
@@ -345,6 +513,20 @@ class MainWindow(QMainWindow):
         label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         label.setMinimumWidth(90)
         return label
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._capture_busy:
+            self._controller.cancel_capture()
+            QMessageBox.information(
+                self,
+                "正在停止采集",
+                "已发送停止请求。请等待 Job 结束后再关闭程序。",
+            )
+            event.ignore()
+            return
+
+        self._controller.shutdown()
+        event.accept()
 
     def _apply_style(self) -> None:
         font = QFont()

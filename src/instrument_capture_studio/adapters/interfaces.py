@@ -16,8 +16,8 @@ class OscilloscopeAdapter(InstrumentAdapter):
         """执行 DELAY 测量并返回结果。"""
 
     @abstractmethod
-    def acquire_cycles(self) -> MeasurementResult:
-        """执行 CYCLES 测量并返回结果。"""
+    def acquire_cycle_count(self) -> MeasurementResult:
+        """执行周期/脉冲计数测量并返回结果。"""
 
     @abstractmethod
     def acquire_waveform(self) -> WaveformResult:

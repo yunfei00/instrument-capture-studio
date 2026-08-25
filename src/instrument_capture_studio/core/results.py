@@ -4,7 +4,7 @@ from typing import Any
 
 @dataclass
 class MeasurementResult:
-    """单个测量值结果，例如 DELAY 或 CYCLES。"""
+    """单个测量值结果，例如 DELAY 或周期计数。"""
 
     measurement: str
     value: float

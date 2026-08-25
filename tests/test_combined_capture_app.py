@@ -351,3 +351,138 @@ def test_app_records_canceled_job_manifest():
     assert manifest_sink.results == [
         result
     ]
+
+
+def test_app_records_fsw_connection_failure_manifest():
+    class FailingSpectrumAnalyzer(
+        FakeSpectrumAnalyzer
+    ):
+        def connect(self):
+            self.calls.append(
+                "fsw_connect"
+            )
+
+            raise RuntimeError(
+                "FSW connection failed"
+            )
+
+    calls = []
+
+    manifest_sink = (
+        RecordingJobManifestSink()
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="FSW connection failed",
+    ):
+        run_combined_capture(
+            FailingSpectrumAnalyzer(
+                calls
+            ),
+            FakeOscilloscope(
+                calls
+            ),
+            job_id="job-fsw-connect-fail",
+            job_manifest_sink=manifest_sink,
+        )
+
+    assert calls == [
+        "fsw_connect",
+    ]
+
+    assert len(
+        manifest_sink.results
+    ) == 1
+
+    result = (
+        manifest_sink.results[0]
+    )
+
+    assert (
+        result.state
+        == JobState.FAILED
+    )
+
+    error = result.metadata[
+        "application_error"
+    ]
+
+    assert error[
+        "stage"
+    ] == "connect_spectrum_analyzer"
+
+    assert error[
+        "instrument"
+    ] == "FSW"
+
+    assert error[
+        "error_type"
+    ] == "RuntimeError"
+
+    assert error[
+        "message"
+    ] == "FSW connection failed"
+
+
+def test_app_records_dsox_connection_failure_manifest():
+    calls = []
+
+    manifest_sink = (
+        RecordingJobManifestSink()
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="DSO-X connection failed",
+    ):
+        run_combined_capture(
+            FakeSpectrumAnalyzer(
+                calls
+            ),
+            FakeOscilloscope(
+                calls,
+                fail_connect=True,
+            ),
+            job_id="job-dsox-connect-fail",
+            job_manifest_sink=manifest_sink,
+        )
+
+    assert calls == [
+        "fsw_connect",
+        "dsox_connect",
+        "fsw_disconnect",
+    ]
+
+    assert len(
+        manifest_sink.results
+    ) == 1
+
+    result = (
+        manifest_sink.results[0]
+    )
+
+    assert (
+        result.state
+        == JobState.FAILED
+    )
+
+    error = result.metadata[
+        "application_error"
+    ]
+
+    assert error[
+        "stage"
+    ] == "connect_oscilloscope"
+
+    assert error[
+        "instrument"
+    ] == "DSO-X"
+
+    assert error[
+        "error_type"
+    ] == "RuntimeError"
+
+    assert error[
+        "message"
+    ] == "DSO-X connection failed"

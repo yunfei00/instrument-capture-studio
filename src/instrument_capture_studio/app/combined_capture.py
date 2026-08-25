@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from instrument_capture_studio.adapters.interfaces import (
     OscilloscopeAdapter,
@@ -6,6 +7,7 @@ from instrument_capture_studio.adapters.interfaces import (
 )
 from instrument_capture_studio.core.models import (
     CaptureResult,
+    JobState,
 )
 from instrument_capture_studio.workflows.combined import (
     CombinedCaptureWorkflow,
@@ -39,16 +41,29 @@ def run_combined_capture(
     connected = []
     result: CaptureResult | None = None
 
+    application_started_at = datetime.now(
+        timezone.utc
+    )
+
+    stage = "connect_spectrum_analyzer"
+    stage_instrument = spectrum_analyzer
+
     try:
         spectrum_analyzer.connect()
         connected.append(
             spectrum_analyzer
         )
 
+        stage = "connect_oscilloscope"
+        stage_instrument = oscilloscope
+
         oscilloscope.connect()
         connected.append(
             oscilloscope
         )
+
+        stage = "workflow_setup"
+        stage_instrument = None
 
         workflow = CombinedCaptureWorkflow(
             spectrum_analyzer=(
@@ -60,11 +75,55 @@ def run_combined_capture(
             result_sink=result_sink,
         )
 
+        stage = "workflow_run"
+
         result = workflow.run(
             job_id
         )
 
         return result
+
+    except Exception as exc:
+        if result is None:
+            result = CaptureResult(
+                job_id=job_id,
+                state=JobState.FAILED,
+                started_at=application_started_at,
+                finished_at=datetime.now(
+                    timezone.utc
+                ),
+                metadata={
+                    "application_error": {
+                        "stage": stage,
+                        "instrument": (
+                            None
+                            if stage_instrument is None
+                            else getattr(
+                                stage_instrument,
+                                "name",
+                                type(
+                                    stage_instrument
+                                ).__name__,
+                            )
+                        ),
+                        "address": (
+                            None
+                            if stage_instrument is None
+                            else getattr(
+                                stage_instrument,
+                                "address",
+                                None,
+                            )
+                        ),
+                        "error_type": (
+                            type(exc).__name__
+                        ),
+                        "message": str(exc),
+                    },
+                },
+            )
+
+        raise
 
     finally:
         disconnect_errors = []

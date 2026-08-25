@@ -273,3 +273,46 @@ def test_acquire_spectrum_passes_cancel_check_to_driver():
     ]
 
     assert result.points == 3
+
+
+def test_get_configuration_returns_snapshot():
+    config = FSWConfig(
+        center_frequency_hz=600e6,
+        span_hz=200e6,
+        rbw_hz=1e6,
+        vbw_hz=3e6,
+        trigger_source="EXT",
+        channel=1,
+        window=2,
+        trace=3,
+    )
+
+    adapter, _ = make_adapter(
+        config
+    )
+
+    snapshot = (
+        adapter.get_configuration()
+    )
+
+    assert snapshot == {
+        "center_frequency_hz": 600e6,
+        "span_hz": 200e6,
+        "rbw_hz": 1e6,
+        "vbw_hz": 3e6,
+        "trigger_source": "EXT",
+        "channel": 1,
+        "window": 2,
+        "trace": 3,
+    }
+
+    snapshot[
+        "span_hz"
+    ] = 123
+
+    assert (
+        adapter.get_configuration()[
+            "span_hz"
+        ]
+        == 200e6
+    )

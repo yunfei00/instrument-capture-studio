@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, Protocol
 
 from instrument_capture_studio.adapters.driver_guard import DriverErrorGuard
@@ -92,6 +92,17 @@ class DSOX3034AAdapter(OscilloscopeAdapter):
 
         self._driver = DriverErrorGuard(driver)
         self._config = config or DSOX3034AConfig()
+
+    def get_configuration(
+        self,
+    ) -> dict[str, object]:
+        """返回当前商业采集配置快照。"""
+
+        return dict(
+            asdict(
+                self._config
+            )
+        )
 
     def connect(self) -> None:
         self._driver.connect()

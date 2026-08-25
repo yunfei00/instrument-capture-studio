@@ -26,6 +26,12 @@ class InstrumentAdapter(ABC):
     def get_status(self) -> InstrumentStatus:
         """返回产品层统一仪表状态。"""
 
+    @abstractmethod
+    def get_configuration(
+        self,
+    ) -> dict[str, object]:
+        """返回当前商业采集配置快照。"""
+
     def __enter__(self):
         self.connect()
         return self

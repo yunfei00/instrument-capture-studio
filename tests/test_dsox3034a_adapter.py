@@ -237,3 +237,42 @@ def test_acquire_waveform_converts_driver_result():
 
     assert result.metadata["raw_points"] == 3
     assert result.metadata["acquisition_type"] == 2
+
+
+def test_get_configuration_returns_snapshot():
+    config = DSOX3034AConfig(
+        delay_source1="CHANnel1",
+        delay_source2="CHANnel2",
+        delay_edge1="+1",
+        delay_edge2="-1",
+        cycle_count_source="CHANnel3",
+        waveform_channel=2,
+    )
+
+    adapter, _ = make_adapter(
+        config
+    )
+
+    snapshot = (
+        adapter.get_configuration()
+    )
+
+    assert snapshot == {
+        "delay_source1": "CHANnel1",
+        "delay_source2": "CHANnel2",
+        "delay_edge1": "+1",
+        "delay_edge2": "-1",
+        "cycle_count_source": "CHANnel3",
+        "waveform_channel": 2,
+    }
+
+    snapshot[
+        "waveform_channel"
+    ] = 4
+
+    assert (
+        adapter.get_configuration()[
+            "waveform_channel"
+        ]
+        == 2
+    )

@@ -35,6 +35,13 @@ class FakeAdapter(InstrumentAdapter):
             ),
         )
 
+    def get_configuration(
+        self,
+    ) -> dict[str, object]:
+        return {
+            "mode": "test",
+        }
+
 
 def test_adapter_connect_disconnect():
     adapter = FakeAdapter()
@@ -58,3 +65,11 @@ def test_adapter_context_manager():
         assert adapter.is_connected() is True
 
     assert adapter.is_connected() is False
+
+
+def test_adapter_configuration_snapshot():
+    adapter = FakeAdapter()
+
+    assert adapter.get_configuration() == {
+        "mode": "test",
+    }

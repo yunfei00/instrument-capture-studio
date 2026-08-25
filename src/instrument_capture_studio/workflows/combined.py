@@ -28,26 +28,12 @@ CancelCheck = Callable[[], bool]
 class CombinedCaptureWorkflow(CaptureWorkflow):
     """FSW + DSO-X 一次完整联合采集流程。"""
 
-    _STEPS = (
-        CaptureStepDefinition(
-            "fsw_spectrum",
-        ),
-        CaptureStepDefinition(
-            "dsox_delay",
-        ),
-        CaptureStepDefinition(
-            "dsox_cycle_count",
-        ),
-        CaptureStepDefinition(
-            "dsox_waveform",
-        ),
-    )
-
     def __init__(
         self,
         spectrum_analyzer: SpectrumAnalyzerAdapter,
         oscilloscope: OscilloscopeAdapter,
         *,
+        fsw_timeout_s: float | None = None,
         cancel_check: CancelCheck | None = None,
     ):
         self._spectrum_analyzer = (
@@ -60,13 +46,29 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
             cancel_check
         )
 
+        self._steps = (
+            CaptureStepDefinition(
+                "fsw_spectrum",
+                timeout_s=fsw_timeout_s,
+            ),
+            CaptureStepDefinition(
+                "dsox_delay",
+            ),
+            CaptureStepDefinition(
+                "dsox_cycle_count",
+            ),
+            CaptureStepDefinition(
+                "dsox_waveform",
+            ),
+        )
+
         self._context = CaptureContext()
 
     @property
     def steps(
         self,
     ) -> tuple[CaptureStepDefinition, ...]:
-        return self._STEPS
+        return self._steps
 
     @property
     def context(
@@ -117,7 +119,9 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
     ) -> None:
         self._context.spectrum = (
             self._spectrum_analyzer
-            .acquire_spectrum()
+            .acquire_spectrum(
+                timeout_s=execution.remaining_s,
+            )
         )
 
     def _acquire_delay(

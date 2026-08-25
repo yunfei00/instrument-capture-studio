@@ -15,8 +15,15 @@ from instrument_capture_studio.workflows.combined import (
 class FakeSpectrumAnalyzer:
     def __init__(self, calls):
         self.calls = calls
+        self.last_timeout_s = None
 
-    def acquire_spectrum(self):
+    def acquire_spectrum(
+        self,
+        *,
+        timeout_s: float | None = None,
+    ):
+        self.last_timeout_s = timeout_s
+
         self.calls.append(
             "fsw_spectrum"
         )
@@ -81,6 +88,7 @@ class FakeOscilloscope:
 
 def make_workflow(
     *,
+    fsw_timeout_s=None,
     cancel_check=None,
 ):
     calls = []
@@ -96,6 +104,7 @@ def make_workflow(
                 calls
             )
         ),
+        fsw_timeout_s=fsw_timeout_s,
         cancel_check=cancel_check,
     )
 
@@ -285,6 +294,135 @@ def test_failure_keeps_completed_results_and_skips_remaining_steps():
     assert workflow.context.spectrum is not None
 
     # 失败及其后续数据不能伪造。
+    assert workflow.context.delay is None
+    assert workflow.context.cycle_count is None
+    assert workflow.context.waveform is None
+
+    assert (
+        result.metadata["capture_complete"]
+        is False
+    )
+
+
+
+def test_combined_capture_passes_fsw_remaining_timeout():
+    calls = []
+
+    spectrum = FakeSpectrumAnalyzer(
+        calls
+    )
+
+    workflow = CombinedCaptureWorkflow(
+        spectrum_analyzer=spectrum,
+        oscilloscope=FakeOscilloscope(
+            calls
+        ),
+        fsw_timeout_s=7.5,
+    )
+
+    result = workflow.run(
+        "job-fsw-timeout"
+    )
+
+    assert result.state == JobState.SUCCEEDED
+
+    assert spectrum.last_timeout_s is not None
+
+    assert (
+        0.0
+        < spectrum.last_timeout_s
+        <= 7.5
+    )
+
+    assert (
+        result.steps[0]
+        .metadata["timeout_s"]
+        == 7.5
+    )
+
+
+def test_fsw_trigger_timeout_fails_workflow_and_skips_remaining_steps():
+    from instrument_capture_studio.adapters.fsw import (
+        FSWAdapter,
+    )
+    from instrument_capture_studio.core.exceptions import (
+        InstrumentTimeoutError,
+    )
+
+    PlatformTriggerTimeoutError = type(
+        "TriggerTimeoutError",
+        (Exception,),
+        {},
+    )
+
+    class TimeoutFSWDriver:
+        def acquire_trace_ascii(
+            self,
+            *,
+            channel=1,
+            window=1,
+            trace=1,
+            timeout_s=None,
+        ):
+            assert timeout_s is not None
+            assert 0.0 < timeout_s <= 0.5
+
+            raise PlatformTriggerTimeoutError(
+                "measurement trigger timeout"
+            )
+
+    calls = []
+
+    spectrum = FSWAdapter(
+        address="MOCK::FSW",
+        driver=TimeoutFSWDriver(),
+    )
+
+    workflow = CombinedCaptureWorkflow(
+        spectrum_analyzer=spectrum,
+        oscilloscope=FakeOscilloscope(
+            calls
+        ),
+        fsw_timeout_s=0.5,
+    )
+
+    result = workflow.run(
+        "job-fsw-trigger-timeout"
+    )
+
+    assert result.state == JobState.FAILED
+
+    assert (
+        result.steps[0].state
+        == StepState.FAILED
+    )
+
+    assert (
+        result.steps[0]
+        .metadata["error_type"]
+        == InstrumentTimeoutError.__name__
+    )
+
+    assert (
+        result.steps[0]
+        .metadata["timeout_s"]
+        == 0.5
+    )
+
+    assert (
+        "measurement trigger timeout"
+        in result.steps[0].error
+    )
+
+    assert all(
+        step.state == StepState.SKIPPED
+        for step in result.steps[1:]
+    )
+
+    # FSW 已失败，示波器绝不能继续执行。
+    assert calls == []
+
+    assert workflow.context.spectrum is None
     assert workflow.context.delay is None
     assert workflow.context.cycle_count is None
     assert workflow.context.waveform is None

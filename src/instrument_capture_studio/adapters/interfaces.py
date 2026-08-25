@@ -28,5 +28,9 @@ class SpectrumAnalyzerAdapter(InstrumentAdapter):
     """频谱分析仪在商业采集产品中需要提供的能力。"""
 
     @abstractmethod
-    def acquire_spectrum(self) -> SpectrumResult:
+    def acquire_spectrum(
+        self,
+        *,
+        timeout_s: float | None = None,
+    ) -> SpectrumResult:
         """执行一次频谱采集并返回结果。"""

@@ -71,6 +71,7 @@ class FSWDriverProtocol(Protocol):
         channel: int = 1,
         window: int = 1,
         trace: int = 1,
+        timeout_s: float | None = None,
     ) -> Any:
         ...
 
@@ -154,6 +155,8 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
 
     def acquire_spectrum(
         self,
+        *,
+        timeout_s: float | None = None,
     ) -> SpectrumResult:
         self._apply_configuration()
 
@@ -164,6 +167,7 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
                 channel=config.channel,
                 window=config.window,
                 trace=config.trace,
+                timeout_s=timeout_s,
             )
         )
 

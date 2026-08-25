@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from instrument_capture_studio.adapters.driver_guard import DriverErrorGuard
 from instrument_capture_studio.adapters.interfaces import (
     SpectrumAnalyzerAdapter,
 )
@@ -105,7 +106,7 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
             address=address,
         )
 
-        self._driver = driver
+        self._driver = DriverErrorGuard(driver)
         self._config = config or FSWConfig()
 
     def connect(self) -> None:

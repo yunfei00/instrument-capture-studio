@@ -1,0 +1,224 @@
+from types import SimpleNamespace
+
+from instrument_capture_studio.adapters.fsw import (
+    FSWAdapter,
+    FSWConfig,
+)
+from instrument_capture_studio.core.models import (
+    InstrumentState,
+)
+
+
+class FakeState:
+    def __init__(self, value: str):
+        self.value = value
+
+
+class FakeFSWDriver:
+    def __init__(self):
+        self._connected = False
+        self._state = FakeState("disconnected")
+        self._identity = None
+
+        self.calls = []
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    @property
+    def state(self):
+        return self._state
+
+    @property
+    def identity(self):
+        return self._identity
+
+    def connect(self):
+        self._connected = True
+        self._state = FakeState("ready")
+
+        self._identity = SimpleNamespace(
+            model="FSW",
+            serial_number="123456",
+            firmware="6.30",
+        )
+
+        return self._identity
+
+    def disconnect(self) -> None:
+        self._connected = False
+        self._state = FakeState("disconnected")
+
+    def set_center_frequency(
+        self,
+        value_hz: float,
+    ) -> None:
+        self.calls.append(
+            ("center", value_hz)
+        )
+
+    def set_span(
+        self,
+        value_hz: float,
+    ) -> None:
+        self.calls.append(
+            ("span", value_hz)
+        )
+
+    def set_rbw(
+        self,
+        value_hz: float,
+    ) -> None:
+        self.calls.append(
+            ("rbw", value_hz)
+        )
+
+    def set_vbw(
+        self,
+        value_hz: float,
+    ) -> None:
+        self.calls.append(
+            ("vbw", value_hz)
+        )
+
+    def set_trigger_source(
+        self,
+        source: str,
+    ) -> None:
+        self.calls.append(
+            ("trigger", source)
+        )
+
+    def acquire_trace_ascii(
+        self,
+        *,
+        channel: int = 1,
+        window: int = 1,
+        trace: int = 1,
+    ):
+        self.calls.append(
+            (
+                "acquire",
+                channel,
+                window,
+                trace,
+            )
+        )
+
+        return SimpleNamespace(
+            frequencies_hz=(
+                100e6,
+                150e6,
+                200e6,
+            ),
+            levels=(
+                -80.0,
+                -60.0,
+                -70.0,
+            ),
+            start_hz=100e6,
+            stop_hz=200e6,
+        )
+
+
+def make_adapter(
+    config: FSWConfig | None = None,
+):
+    driver = FakeFSWDriver()
+
+    adapter = FSWAdapter(
+        address="TCPIP0::192.168.1.20::inst0::INSTR",
+        driver=driver,
+        config=config,
+    )
+
+    return adapter, driver
+
+
+def test_connect_status_and_disconnect():
+    adapter, driver = make_adapter()
+
+    assert adapter.is_connected() is False
+
+    adapter.connect()
+
+    assert adapter.is_connected() is True
+
+    status = adapter.get_status()
+
+    assert status.state == InstrumentState.CONNECTED
+    assert status.model == "FSW"
+    assert status.serial_number == "123456"
+    assert status.firmware_version == "6.30"
+
+    adapter.disconnect()
+
+    assert adapter.is_connected() is False
+
+    status = adapter.get_status()
+
+    assert status.state == InstrumentState.DISCONNECTED
+
+
+def test_acquire_spectrum_applies_configuration():
+    config = FSWConfig(
+        center_frequency_hz=150e6,
+        span_hz=100e6,
+        rbw_hz=1e6,
+        vbw_hz=3e6,
+        trigger_source="EXT",
+        channel=1,
+        window=2,
+        trace=3,
+    )
+
+    adapter, driver = make_adapter(
+        config
+    )
+
+    result = adapter.acquire_spectrum()
+
+    assert driver.calls == [
+        ("center", 150e6),
+        ("span", 100e6),
+        ("rbw", 1e6),
+        ("vbw", 3e6),
+        ("trigger", "EXT"),
+        ("acquire", 1, 2, 3),
+    ]
+
+    assert result.frequencies_hz == [
+        100e6,
+        150e6,
+        200e6,
+    ]
+
+    assert result.amplitudes_dbm == [
+        -80.0,
+        -60.0,
+        -70.0,
+    ]
+
+    assert result.points == 3
+
+    assert result.metadata == {
+        "start_hz": 100e6,
+        "stop_hz": 200e6,
+        "channel": 1,
+        "window": 2,
+        "trace": 3,
+        "transfer_format": "ASCII",
+    }
+
+
+def test_default_configuration_does_not_change_measurement_settings():
+    adapter, driver = make_adapter()
+
+    result = adapter.acquire_spectrum()
+
+    assert driver.calls == [
+        ("acquire", 1, 1, 1),
+    ]
+
+    assert result.points == 3

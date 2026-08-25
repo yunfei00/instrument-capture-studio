@@ -21,6 +21,29 @@ from instrument_capture_studio.workflows.result_sink import (
 CancelCheck = Callable[[], bool]
 
 
+def _instrument_snapshot(
+    adapter,
+) -> dict[str, object]:
+    """读取一次不可变的仪表身份和配置快照。"""
+
+    status = adapter.get_status()
+
+    return {
+        "name": status.name,
+        "address": status.address,
+        "state": status.state.value,
+        "model": status.model,
+        "serial_number": status.serial_number,
+        "firmware_version": (
+            status.firmware_version
+        ),
+        "last_error": status.last_error,
+        "configuration": dict(
+            adapter.get_configuration()
+        ),
+    }
+
+
 def run_combined_capture(
     spectrum_analyzer: SpectrumAnalyzerAdapter,
     oscilloscope: OscilloscopeAdapter,
@@ -62,6 +85,35 @@ def run_combined_capture(
             oscilloscope
         )
 
+        stage = "snapshot_spectrum_analyzer"
+        stage_instrument = spectrum_analyzer
+
+        spectrum_snapshot = (
+            _instrument_snapshot(
+                spectrum_analyzer
+            )
+        )
+
+        stage = "snapshot_oscilloscope"
+        stage_instrument = oscilloscope
+
+        oscilloscope_snapshot = (
+            _instrument_snapshot(
+                oscilloscope
+            )
+        )
+
+        instrument_metadata = {
+            "instruments": {
+                "spectrum_analyzer": (
+                    spectrum_snapshot
+                ),
+                "oscilloscope": (
+                    oscilloscope_snapshot
+                ),
+            }
+        }
+
         stage = "workflow_setup"
         stage_instrument = None
 
@@ -73,6 +125,9 @@ def run_combined_capture(
             fsw_timeout_s=fsw_timeout_s,
             cancel_check=cancel_check,
             result_sink=result_sink,
+            initial_metadata=(
+                instrument_metadata
+            ),
         )
 
         stage = "workflow_run"

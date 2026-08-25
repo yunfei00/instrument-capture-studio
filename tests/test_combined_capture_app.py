@@ -8,6 +8,8 @@ from instrument_capture_studio.app.combined_capture import (
     run_combined_capture,
 )
 from instrument_capture_studio.core.models import (
+    InstrumentState,
+    InstrumentStatus,
     JobState,
 )
 from instrument_capture_studio.core.results import (
@@ -19,6 +21,7 @@ from instrument_capture_studio.core.results import (
 
 class FakeSpectrumAnalyzer:
     name = "FSW"
+    address = "MOCK::FSW"
 
     def __init__(
         self,
@@ -35,6 +38,23 @@ class FakeSpectrumAnalyzer:
         self.calls.append(
             "fsw_disconnect"
         )
+
+    def get_status(self):
+        return InstrumentStatus(
+            name=self.name,
+            address=self.address,
+            state=InstrumentState.CONNECTED,
+            model="FSW-TEST",
+            serial_number="FSW123",
+            firmware_version="6.00",
+        )
+
+    def get_configuration(self):
+        return {
+            "center_frequency_hz": 600e6,
+            "span_hz": 200e6,
+            "trigger_source": "IMM",
+        }
 
     def acquire_spectrum(
         self,
@@ -60,6 +80,7 @@ class FakeSpectrumAnalyzer:
 
 class FakeOscilloscope:
     name = "DSO-X"
+    address = "MOCK::DSOX"
 
     def __init__(
         self,
@@ -86,6 +107,23 @@ class FakeOscilloscope:
         self.calls.append(
             "dsox_disconnect"
         )
+
+    def get_status(self):
+        return InstrumentStatus(
+            name=self.name,
+            address=self.address,
+            state=InstrumentState.CONNECTED,
+            model="DSO-X 3034A",
+            serial_number="DSOX123",
+            firmware_version="TEST-FW",
+        )
+
+    def get_configuration(self):
+        return {
+            "delay_source1": "CHANnel1",
+            "delay_source2": "CHANnel2",
+            "waveform_channel": 1,
+        }
 
     def acquire_delay(self):
         self.calls.append(
@@ -486,3 +524,76 @@ def test_app_records_dsox_connection_failure_manifest():
     assert error[
         "message"
     ] == "DSO-X connection failed"
+
+
+def test_app_injects_instrument_snapshots():
+    class RecordingResultSink:
+        def __init__(self):
+            self.context = None
+
+        def save(
+            self,
+            job_id,
+            context,
+        ):
+            self.context = context
+            return ()
+
+    calls = []
+    sink = RecordingResultSink()
+
+    result = run_combined_capture(
+        FakeSpectrumAnalyzer(
+            calls
+        ),
+        FakeOscilloscope(
+            calls
+        ),
+        job_id="job-instrument-metadata",
+        result_sink=sink,
+    )
+
+    instruments = (
+        sink.context.metadata[
+            "instruments"
+        ]
+    )
+
+    fsw = instruments[
+        "spectrum_analyzer"
+    ]
+
+    assert fsw[
+        "model"
+    ] == "FSW-TEST"
+
+    assert fsw[
+        "firmware_version"
+    ] == "6.00"
+
+    assert fsw[
+        "configuration"
+    ][
+        "center_frequency_hz"
+    ] == 600e6
+
+    dsox = instruments[
+        "oscilloscope"
+    ]
+
+    assert dsox[
+        "model"
+    ] == "DSO-X 3034A"
+
+    assert dsox[
+        "configuration"
+    ][
+        "waveform_channel"
+    ] == 1
+
+    assert (
+        result.metadata[
+            "instruments"
+        ]
+        == instruments
+    )

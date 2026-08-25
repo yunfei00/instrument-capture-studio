@@ -589,3 +589,49 @@ def test_combined_capture_executes_save_result_step():
     assert result.output_files == [
         "memory://job-save-result"
     ]
+
+
+def test_combined_capture_preserves_initial_metadata():
+    calls = []
+
+    workflow = CombinedCaptureWorkflow(
+        spectrum_analyzer=FakeSpectrumAnalyzer(
+            calls
+        ),
+        oscilloscope=FakeOscilloscope(
+            calls
+        ),
+        initial_metadata={
+            "instruments": {
+                "test": {
+                    "model": "TEST",
+                }
+            }
+        },
+    )
+
+    result = workflow.run(
+        "job-initial-metadata"
+    )
+
+    assert (
+        workflow.context.metadata[
+            "instruments"
+        ][
+            "test"
+        ][
+            "model"
+        ]
+        == "TEST"
+    )
+
+    assert (
+        result.metadata[
+            "instruments"
+        ][
+            "test"
+        ][
+            "model"
+        ]
+        == "TEST"
+    )

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from copy import deepcopy
 
 from instrument_capture_studio.adapters.interfaces import (
     OscilloscopeAdapter,
@@ -40,6 +41,7 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
         fsw_timeout_s: float | None = None,
         cancel_check: CancelCheck | None = None,
         result_sink: CaptureResultSink | None = None,
+        initial_metadata: dict[str, object] | None = None,
     ):
         self._spectrum_analyzer = (
             spectrum_analyzer
@@ -54,6 +56,11 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
         self._result_sink = (
             result_sink
             or InMemoryResultSink()
+        )
+
+        self._initial_metadata = deepcopy(
+            initial_metadata
+            or {}
         )
 
         self._current_job_id: str | None = None
@@ -78,7 +85,11 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
             ),
         )
 
-        self._context = CaptureContext()
+        self._context = CaptureContext(
+            metadata=deepcopy(
+                self._initial_metadata
+            )
+        )
 
     @property
     def steps(
@@ -98,7 +109,11 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
     ) -> CaptureResult:
         # Workflow 对象允许重复使用；
         # 每个新 Job 必须从全新的上下文开始。
-        self._context = CaptureContext()
+        self._context = CaptureContext(
+            metadata=deepcopy(
+                self._initial_metadata
+            )
+        )
         self._current_job_id = job_id
         self._output_files = []
 
@@ -140,6 +155,18 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
                 False,
             )
         )
+
+        if (
+            "instruments"
+            in self._context.metadata
+        ):
+            result.metadata[
+                "instruments"
+            ] = deepcopy(
+                self._context.metadata[
+                    "instruments"
+                ]
+            )
 
         result.output_files = list(
             self._output_files

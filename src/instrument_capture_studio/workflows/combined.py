@@ -14,6 +14,9 @@ from instrument_capture_studio.workflows.base import (
 from instrument_capture_studio.workflows.context import (
     CaptureContext,
 )
+from instrument_capture_studio.workflows.execution import (
+    StepExecutionContext,
+)
 from instrument_capture_studio.workflows.runner import (
     SequentialWorkflowRunner,
 )
@@ -110,6 +113,7 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
 
     def _acquire_spectrum(
         self,
+        execution: StepExecutionContext,
     ) -> None:
         self._context.spectrum = (
             self._spectrum_analyzer
@@ -118,6 +122,7 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
 
     def _acquire_delay(
         self,
+        execution: StepExecutionContext,
     ) -> None:
         self._context.delay = (
             self._oscilloscope
@@ -126,6 +131,7 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
 
     def _acquire_cycle_count(
         self,
+        execution: StepExecutionContext,
     ) -> None:
         self._context.cycle_count = (
             self._oscilloscope
@@ -134,6 +140,7 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
 
     def _acquire_waveform(
         self,
+        execution: StepExecutionContext,
     ) -> None:
         self._context.waveform = (
             self._oscilloscope

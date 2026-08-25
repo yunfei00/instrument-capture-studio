@@ -156,12 +156,19 @@ def test_job_directory_sink_writes_spectrum_csv(
         / "spectrum.csv"
     )
 
+    spectrum_npz_path = (
+        root
+        / "spectrum.npz"
+    )
+
     assert metadata_path.is_file()
     assert spectrum_path.is_file()
+    assert spectrum_npz_path.is_file()
 
     assert output_files == (
         str(metadata_path),
         str(spectrum_path),
+        str(spectrum_npz_path),
     )
 
     lines = spectrum_path.read_text(
@@ -223,12 +230,19 @@ def test_job_directory_sink_writes_waveform_csv(
         / "waveform.csv"
     )
 
+    waveform_npz_path = (
+        root
+        / "waveform.npz"
+    )
+
     assert metadata_path.is_file()
     assert waveform_path.is_file()
+    assert waveform_npz_path.is_file()
 
     assert output_files == (
         str(metadata_path),
         str(waveform_path),
+        str(waveform_npz_path),
     )
 
     lines = waveform_path.read_text(
@@ -240,3 +254,71 @@ def test_job_directory_sink_writes_waveform_csv(
         "0.0,0.1",
         "1e-06,0.2",
     ]
+
+
+def test_job_directory_sink_writes_complete_data_set(
+    tmp_path,
+):
+    from instrument_capture_studio.core.results import (
+        SpectrumResult,
+        WaveformResult,
+    )
+
+    sink = JobDirectoryResultSink(
+        tmp_path,
+        clock=fixed_clock,
+    )
+
+    context = CaptureContext(
+        spectrum=SpectrumResult(
+            frequencies_hz=[
+                500e6,
+                600e6,
+            ],
+            amplitudes_dbm=[
+                -80.0,
+                -40.0,
+            ],
+        ),
+        waveform=WaveformResult(
+            channel="CH1",
+            time_s=[
+                0.0,
+                1e-6,
+            ],
+            voltage_v=[
+                0.1,
+                0.2,
+            ],
+            sample_rate_hz=1e6,
+        ),
+    )
+
+    output_files = sink.save(
+        "job-complete-data",
+        context,
+    )
+
+    root = (
+        tmp_path
+        / "2026-08-25"
+        / "job-complete-data"
+    )
+
+    expected = (
+        root / "metadata.json",
+        root / "spectrum.csv",
+        root / "spectrum.npz",
+        root / "waveform.csv",
+        root / "waveform.npz",
+    )
+
+    assert all(
+        path.is_file()
+        for path in expected
+    )
+
+    assert output_files == tuple(
+        str(path)
+        for path in expected
+    )

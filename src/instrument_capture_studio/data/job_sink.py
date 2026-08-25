@@ -9,6 +9,10 @@ from instrument_capture_studio.data.metadata import (
     build_capture_metadata,
     write_capture_metadata,
 )
+from instrument_capture_studio.data.npz import (
+    write_spectrum_npz,
+    write_waveform_npz,
+)
 from instrument_capture_studio.data.spectrum_csv import (
     write_spectrum_csv,
 )
@@ -81,9 +85,19 @@ class JobDirectoryResultSink:
                 context.spectrum,
             )
 
-            output_files.append(
-                str(
-                    layout.spectrum_csv_path
+            write_spectrum_npz(
+                layout.spectrum_npz_path,
+                context.spectrum,
+            )
+
+            output_files.extend(
+                (
+                    str(
+                        layout.spectrum_csv_path
+                    ),
+                    str(
+                        layout.spectrum_npz_path
+                    ),
                 )
             )
 
@@ -93,9 +107,19 @@ class JobDirectoryResultSink:
                 context.waveform,
             )
 
-            output_files.append(
-                str(
-                    layout.waveform_csv_path
+            write_waveform_npz(
+                layout.waveform_npz_path,
+                context.waveform,
+            )
+
+            output_files.extend(
+                (
+                    str(
+                        layout.waveform_csv_path
+                    ),
+                    str(
+                        layout.waveform_npz_path
+                    ),
                 )
             )
 

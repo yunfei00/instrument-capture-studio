@@ -68,6 +68,35 @@ Phase 8 完成后发布 v1.0.0。
 
 ## Phase 4 - 联合采集 Workflow
 
+状态：
+
+**SOFTWARE COMPLETE**
+
+已完成：
+
+- 统一 Capture Job
+- FSW Spectrum
+- DSO-X DELAY
+- DSO-X CYCLE_COUNT
+- DSO-X Waveform
+- Save Result Step
+- Step 状态
+- Job 状态
+- 超时
+- 运行中取消
+- 重试
+- 失败处理
+- 无 GUI CLI 联合采集入口
+- FSW timeout 真机验证
+- FSW runtime cancel 真机验证
+
+待硬件补充验收：
+
+- DSO-X 3034A 真机采集
+- FSW + DSO-X 双仪表完整联合采集
+
+以上硬件待测项不阻塞 Phase 5 软件开发。
+
 目标：
 
 建立统一 Capture Job。

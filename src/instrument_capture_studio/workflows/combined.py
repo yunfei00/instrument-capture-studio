@@ -20,6 +20,10 @@ from instrument_capture_studio.workflows.execution import (
 from instrument_capture_studio.workflows.runner import (
     SequentialWorkflowRunner,
 )
+from instrument_capture_studio.workflows.result_sink import (
+    CaptureResultSink,
+    InMemoryResultSink,
+)
 
 
 CancelCheck = Callable[[], bool]
@@ -35,6 +39,7 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
         *,
         fsw_timeout_s: float | None = None,
         cancel_check: CancelCheck | None = None,
+        result_sink: CaptureResultSink | None = None,
     ):
         self._spectrum_analyzer = (
             spectrum_analyzer
@@ -45,6 +50,14 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
         self._cancel_check = (
             cancel_check
         )
+
+        self._result_sink = (
+            result_sink
+            or InMemoryResultSink()
+        )
+
+        self._current_job_id: str | None = None
+        self._output_files: list[str] = []
 
         self._steps = (
             CaptureStepDefinition(
@@ -59,6 +72,9 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
             ),
             CaptureStepDefinition(
                 "dsox_waveform",
+            ),
+            CaptureStepDefinition(
+                "save_result",
             ),
         )
 
@@ -83,6 +99,8 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
         # Workflow 对象允许重复使用；
         # 每个新 Job 必须从全新的上下文开始。
         self._context = CaptureContext()
+        self._current_job_id = job_id
+        self._output_files = []
 
         runner = SequentialWorkflowRunner(
             steps=self.steps,
@@ -99,6 +117,9 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
                 "dsox_waveform": (
                     self._acquire_waveform
                 ),
+                "save_result": (
+                    self._save_result
+                ),
             },
             cancel_check=self._cancel_check,
         )
@@ -110,6 +131,19 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
         result.metadata[
             "capture_complete"
         ] = self._context.is_complete
+
+        result.metadata[
+            "result_saved"
+        ] = bool(
+            self._context.metadata.get(
+                "result_saved",
+                False,
+            )
+        )
+
+        result.output_files = list(
+            self._output_files
+        )
 
         return result
 
@@ -151,3 +185,35 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
             self._oscilloscope
             .acquire_waveform()
         )
+
+    def _save_result(
+        self,
+        execution: StepExecutionContext,
+    ) -> None:
+        if not self._context.is_complete:
+            from instrument_capture_studio.core.exceptions import (
+                CaptureStepError,
+            )
+
+            raise CaptureStepError(
+                "save_result",
+                "capture context is incomplete",
+            )
+
+        if self._current_job_id is None:
+            raise RuntimeError(
+                "current job id is not set"
+            )
+
+        output_files = self._result_sink.save(
+            self._current_job_id,
+            self._context,
+        )
+
+        self._output_files = list(
+            output_files
+        )
+
+        self._context.metadata[
+            "result_saved"
+        ] = True

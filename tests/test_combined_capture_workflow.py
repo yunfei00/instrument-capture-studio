@@ -519,3 +519,73 @@ def test_fsw_runtime_cancel_marks_job_canceled():
         result.metadata["capture_complete"]
         is False
     )
+
+
+def test_combined_capture_executes_save_result_step():
+    class RecordingResultSink:
+        def __init__(self):
+            self.job_id = None
+            self.context = None
+
+        def save(
+            self,
+            job_id,
+            context,
+        ):
+            self.job_id = job_id
+            self.context = context
+
+            return (
+                "memory://job-save-result",
+            )
+
+    calls = []
+
+    sink = RecordingResultSink()
+
+    workflow = CombinedCaptureWorkflow(
+        spectrum_analyzer=FakeSpectrumAnalyzer(
+            calls
+        ),
+        oscilloscope=FakeOscilloscope(
+            calls
+        ),
+        result_sink=sink,
+    )
+
+    result = workflow.run(
+        "job-save-result"
+    )
+
+    assert result.state == JobState.SUCCEEDED
+
+    assert [
+        step.name
+        for step in result.steps
+    ] == [
+        "fsw_spectrum",
+        "dsox_delay",
+        "dsox_cycle_count",
+        "dsox_waveform",
+        "save_result",
+    ]
+
+    assert (
+        result.steps[-1].state
+        == StepState.SUCCEEDED
+    )
+
+    assert sink.job_id == "job-save-result"
+
+    assert sink.context is workflow.context
+
+    assert sink.context.is_complete is True
+
+    assert (
+        result.metadata["result_saved"]
+        is True
+    )
+
+    assert result.output_files == [
+        "memory://job-save-result"
+    ]

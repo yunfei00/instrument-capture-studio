@@ -39,3 +39,20 @@ def test_context_eventually_expires():
 
     assert context.expired is True
     assert context.remaining_s == 0.0
+
+
+def test_context_observes_dynamic_cancellation():
+    state = {
+        "canceled": False,
+    }
+
+    context = StepExecutionContext.from_timeout(
+        None,
+        cancel_check=lambda: state["canceled"],
+    )
+
+    assert context.canceled is False
+
+    state["canceled"] = True
+
+    assert context.canceled is True

@@ -370,3 +370,66 @@ def test_timeout_marks_step_failed():
         result.steps[1].state
         == StepState.SKIPPED
     )
+
+
+def test_executor_can_observe_runtime_cancel_signal():
+    state = {
+        "canceled": False,
+    }
+
+    observed = []
+
+    def executor(execution):
+        assert execution.canceled is False
+
+        state["canceled"] = True
+
+        observed.append(
+            execution.canceled
+        )
+
+        if execution.canceled:
+            raise CaptureCanceledError(
+                "runtime cancellation"
+            )
+
+    runner = SequentialWorkflowRunner(
+        steps=(
+            CaptureStepDefinition(
+                "running_step",
+            ),
+            CaptureStepDefinition(
+                "never",
+            ),
+        ),
+        executors={
+            "running_step": executor,
+            "never": (
+                lambda execution: None
+            ),
+        },
+        cancel_check=(
+            lambda: state["canceled"]
+        ),
+    )
+
+    result = runner.run(
+        "job-runtime-cancel"
+    )
+
+    assert observed == [True]
+
+    assert (
+        result.state
+        == JobState.CANCELED
+    )
+
+    assert (
+        result.steps[0].state
+        == StepState.CANCELED
+    )
+
+    assert (
+        result.steps[1].state
+        == StepState.SKIPPED
+    )

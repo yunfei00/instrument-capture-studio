@@ -108,7 +108,10 @@ class SequentialWorkflowRunner(CaptureWorkflow):
             execution = (
                 StepExecutionContext
                 .from_timeout(
-                    definition.timeout_s
+                    definition.timeout_s,
+                    cancel_check=(
+                        self._cancel_check
+                    ),
                 )
             )
 

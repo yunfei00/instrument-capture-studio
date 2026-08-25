@@ -1,0 +1,94 @@
+name: Windows GUI Build and Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-gui:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Instrument Capture Studio
+        uses: actions/checkout@v4
+
+      - name: Checkout Instrument Automation Platform
+        uses: actions/checkout@v4
+        with:
+          repository: yunfei00/instrument-automation-platform
+          path: instrument-automation-platform
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install .
+          python -m pip install "PySide6>=6.7,<7" "PyInstaller>=6.11,<7" pyvisa pyvisa-py
+
+      - name: Verify GUI entry point exists
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "scripts/run_gui.py")) {
+            throw "scripts/run_gui.py does not exist yet. Complete the Phase 6 GUI entry point before building a release."
+          }
+
+      - name: Build Windows GUI bundle
+        shell: pwsh
+        run: |
+          python -m PyInstaller `
+            --noconfirm `
+            --clean `
+            --windowed `
+            --name InstrumentCaptureStudio `
+            --paths src `
+            --paths instrument-automation-platform/packages/instrument_core/src `
+            --paths instrument-automation-platform/packages/instrument_scpi/src `
+            --paths instrument-automation-platform/packages/instrument_drivers/src `
+            --paths instrument-automation-platform/packages/instrument_data/src `
+            --paths instrument-automation-platform/packages/instrument_lab/src `
+            --paths instrument-automation-platform/packages/instrument_qualification/src `
+            scripts/run_gui.py
+
+      - name: Add build information
+        shell: pwsh
+        run: |
+          $buildInfo = @(
+            "repository=${{ github.repository }}",
+            "ref=${{ github.ref }}",
+            "sha=${{ github.sha }}",
+            "built_at=$([DateTime]::UtcNow.ToString('o'))"
+          )
+          $buildInfo | Set-Content -Encoding UTF8 "dist/InstrumentCaptureStudio/BUILD.txt"
+
+      - name: Create release archive
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "dist/InstrumentCaptureStudio/*" `
+            -DestinationPath "InstrumentCaptureStudio-windows-x64.zip" `
+            -Force
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: InstrumentCaptureStudio-windows-x64
+          path: InstrumentCaptureStudio-windows-x64.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: InstrumentCaptureStudio-windows-x64.zip
+          generate_release_notes: true

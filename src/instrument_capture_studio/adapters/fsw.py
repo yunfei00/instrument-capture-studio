@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -72,6 +73,7 @@ class FSWDriverProtocol(Protocol):
         window: int = 1,
         trace: int = 1,
         timeout_s: float | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> Any:
         ...
 
@@ -157,6 +159,7 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
         self,
         *,
         timeout_s: float | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> SpectrumResult:
         self._apply_configuration()
 
@@ -168,6 +171,7 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
                 window=config.window,
                 trace=config.trace,
                 timeout_s=timeout_s,
+                cancel_check=cancel_check,
             )
         )
 

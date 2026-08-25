@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from abc import abstractmethod
 
 from instrument_capture_studio.adapters.base import InstrumentAdapter
@@ -32,5 +33,6 @@ class SpectrumAnalyzerAdapter(InstrumentAdapter):
         self,
         *,
         timeout_s: float | None = None,
+        cancel_check: Callable[[], bool] | None = None,
     ) -> SpectrumResult:
         """执行一次频谱采集并返回结果。"""

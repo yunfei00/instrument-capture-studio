@@ -42,7 +42,6 @@ class SequentialWorkflowRunner(CaptureWorkflow):
         self._executors = executors
         self._cancel_check = (
             cancel_check
-            or (lambda: False)
         )
 
         missing = [
@@ -88,7 +87,7 @@ class SequentialWorkflowRunner(CaptureWorkflow):
                 index
             ]
 
-            if self._cancel_check():
+            if self._cancel_requested():
                 self._cancel_job(
                     result,
                     index,
@@ -266,6 +265,16 @@ class SequentialWorkflowRunner(CaptureWorkflow):
         )
 
         return result
+
+    def _cancel_requested(
+        self,
+    ) -> bool:
+        return (
+            self._cancel_check is not None
+            and bool(
+                self._cancel_check()
+            )
+        )
 
     @staticmethod
     def _timeout_error(

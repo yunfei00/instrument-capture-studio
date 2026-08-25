@@ -121,6 +121,7 @@ class CombinedCaptureWorkflow(CaptureWorkflow):
             self._spectrum_analyzer
             .acquire_spectrum(
                 timeout_s=execution.remaining_s,
+                cancel_check=execution.cancel_check,
             )
         )
 

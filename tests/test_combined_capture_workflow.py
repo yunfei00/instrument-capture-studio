@@ -21,8 +21,10 @@ class FakeSpectrumAnalyzer:
         self,
         *,
         timeout_s: float | None = None,
+        cancel_check=None,
     ):
         self.last_timeout_s = timeout_s
+        self.last_cancel_check = cancel_check
 
         self.calls.append(
             "fsw_spectrum"
@@ -363,6 +365,7 @@ def test_fsw_trigger_timeout_fails_workflow_and_skips_remaining_steps():
             window=1,
             trace=1,
             timeout_s=None,
+            cancel_check=None,
         ):
             assert timeout_s is not None
             assert 0.0 < timeout_s <= 0.5
@@ -426,6 +429,91 @@ def test_fsw_trigger_timeout_fails_workflow_and_skips_remaining_steps():
     assert workflow.context.delay is None
     assert workflow.context.cycle_count is None
     assert workflow.context.waveform is None
+
+    assert (
+        result.metadata["capture_complete"]
+        is False
+    )
+
+
+def test_fsw_runtime_cancel_marks_job_canceled():
+    from instrument_capture_studio.adapters.fsw import (
+        FSWAdapter,
+    )
+
+    PlatformOperationCanceledError = type(
+        "OperationCanceledError",
+        (Exception,),
+        {},
+    )
+
+    class CancelableFSWDriver:
+        def acquire_trace_ascii(
+            self,
+            *,
+            channel=1,
+            window=1,
+            trace=1,
+            timeout_s=None,
+            cancel_check=None,
+        ):
+            assert cancel_check is not None
+
+            if cancel_check():
+                raise PlatformOperationCanceledError(
+                    "measurement canceled"
+                )
+
+            raise AssertionError(
+                "cancel was not observed"
+            )
+
+    state = {
+        "checks": 0,
+    }
+
+    def cancel_check():
+        state["checks"] += 1
+
+        # 第一次：Runner 开始 Step 前检查 → False
+        # 第二次：FSW 正在运行时检查 → True
+        return (
+            state["checks"]
+            >= 2
+        )
+
+    calls = []
+
+    workflow = CombinedCaptureWorkflow(
+        spectrum_analyzer=FSWAdapter(
+            address="MOCK::FSW",
+            driver=CancelableFSWDriver(),
+        ),
+        oscilloscope=FakeOscilloscope(
+            calls
+        ),
+        cancel_check=cancel_check,
+    )
+
+    result = workflow.run(
+        "job-fsw-runtime-cancel"
+    )
+
+    assert result.state == JobState.CANCELED
+
+    assert (
+        result.steps[0].state
+        == StepState.CANCELED
+    )
+
+    assert all(
+        step.state == StepState.SKIPPED
+        for step in result.steps[1:]
+    )
+
+    assert calls == []
+
+    assert workflow.context.spectrum is None
 
     assert (
         result.metadata["capture_complete"]

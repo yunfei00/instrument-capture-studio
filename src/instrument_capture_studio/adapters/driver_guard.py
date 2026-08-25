@@ -1,6 +1,7 @@
 from typing import Any
 
 from instrument_capture_studio.core.exceptions import (
+    CaptureCanceledError,
     InstrumentBusyError,
     InstrumentCaptureStudioError,
     InstrumentCommunicationError,
@@ -79,6 +80,11 @@ class DriverErrorGuard:
         message = (
             f"{operation}: {exc}"
         )
+
+        if "OperationCanceledError" in names:
+            raise CaptureCanceledError(
+                message
+            ) from exc
 
         if (
             "InstrumentConnectionError"

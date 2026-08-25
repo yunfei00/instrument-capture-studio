@@ -126,3 +126,23 @@ def test_programming_error_is_not_translated():
         match="programming bug",
     ):
         driver.operation()
+
+
+def test_operation_canceled_error_is_translated():
+    from instrument_capture_studio.core.exceptions import (
+        CaptureCanceledError,
+    )
+
+    driver = DriverErrorGuard(
+        FakeDriver(
+            make_exception(
+                "OperationCanceledError"
+            )
+        )
+    )
+
+    with pytest.raises(
+        CaptureCanceledError,
+        match="operation:",
+    ):
+        driver.operation()

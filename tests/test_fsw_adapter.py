@@ -97,6 +97,7 @@ class FakeFSWDriver:
         window: int = 1,
         trace: int = 1,
         timeout_s: float | None = None,
+        cancel_check=None,
     ):
         self.calls.append(
             (
@@ -105,6 +106,7 @@ class FakeFSWDriver:
                 window,
                 trace,
                 timeout_s,
+                cancel_check,
             )
         )
 
@@ -187,7 +189,7 @@ def test_acquire_spectrum_applies_configuration():
         ("rbw", 1e6),
         ("vbw", 3e6),
         ("trigger", "EXT"),
-        ("acquire", 1, 2, 3, None),
+        ("acquire", 1, 2, 3, None, None),
     ]
 
     assert result.frequencies_hz == [
@@ -220,7 +222,7 @@ def test_default_configuration_does_not_change_measurement_settings():
     result = adapter.acquire_spectrum()
 
     assert driver.calls == [
-        ("acquire", 1, 1, 1, None),
+        ("acquire", 1, 1, 1, None, None),
     ]
 
     assert result.points == 3
@@ -241,6 +243,32 @@ def test_acquire_spectrum_passes_timeout_to_driver():
             1,
             1,
             7.5,
+            None,
+        ),
+    ]
+
+    assert result.points == 3
+
+
+
+def test_acquire_spectrum_passes_cancel_check_to_driver():
+    adapter, driver = make_adapter()
+
+    def cancel_check():
+        return True
+
+    result = adapter.acquire_spectrum(
+        cancel_check=cancel_check,
+    )
+
+    assert driver.calls == [
+        (
+            "acquire",
+            1,
+            1,
+            1,
+            None,
+            cancel_check,
         ),
     ]
 

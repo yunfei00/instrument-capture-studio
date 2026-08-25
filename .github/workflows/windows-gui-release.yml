@@ -16,6 +16,7 @@ on:
       - "src/instrument_capture_studio/adapters/**"
       - "src/instrument_capture_studio/workflows/**"
       - "src/instrument_capture_studio/data/**"
+      - "tests/**"
 
 permissions:
   contents: write
@@ -44,13 +45,12 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install ".[build]" pyvisa pyvisa-py
+          python -m pip install ".[build]" "pytest>=8" pyvisa pyvisa-py
 
-      - name: Verify GUI state model
+      - name: Run test suite
         shell: pwsh
         run: |
-          python -m pip install "pytest>=8"
-          pytest -q tests/test_ui_state.py
+          pytest -q
 
       - name: Smoke-test GUI offscreen
         shell: pwsh

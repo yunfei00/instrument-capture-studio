@@ -21,11 +21,12 @@ from instrument_capture_studio.core.models import (
 def test_recovery_policy_defaults():
     policy = RecoveryPolicy()
 
-    assert policy.max_attempts == 3
+    assert policy.max_attempts == 4
     assert policy.reconnect_delay_s == 2.0
     assert policy.can_retry(1) is True
     assert policy.can_retry(2) is True
-    assert policy.can_retry(3) is False
+    assert policy.can_retry(3) is True
+    assert policy.can_retry(4) is False
 
 
 @pytest.mark.parametrize(

@@ -11,7 +11,9 @@ from uuid import uuid4
 
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
+from instrument_capture_studio.app.batch_capture import run_frequency_sweep_batch
 from instrument_capture_studio.app.combined_capture import run_combined_capture
+from instrument_capture_studio.app.frequency_sweep import FrequencySweepPlan
 from instrument_capture_studio.app.recovery import (
     RecoveryPolicy,
     recovery_reason_from_exception,
@@ -35,6 +37,9 @@ class HardwareWorker(QObject):
     capture_recovery = Signal(int, int, str, str)
     capture_finished = Signal(object)
     capture_failed = Signal(str, str)
+    batch_started = Signal(str, int)
+    batch_progress = Signal(object)
+    batch_finished = Signal(object)
 
     def __init__(self, cancel_event: Event) -> None:
         super().__init__()
@@ -219,6 +224,66 @@ class HardwareWorker(QObject):
             )
             return
 
+    @Slot(object, object, str, object)
+    def run_frequency_sweep(
+        self,
+        fsw_settings: FSWRuntimeSettings,
+        dsox_settings: DSOXRuntimeSettings,
+        output_root: str,
+        plan: FrequencySweepPlan,
+    ) -> None:
+        self._cancel_event.clear()
+        batch_id = f"batch-{uuid4().hex[:12]}"
+        self.batch_started.emit(batch_id, plan.total_captures)
+        self.log.emit(
+            "开始频率循环采集："
+            f"{batch_id} · {plan.frequency_count} 个频点 · "
+            f"每频点 {plan.captures_per_frequency} 次 · "
+            f"总计 {plan.total_captures} 次"
+        )
+
+        def report_progress(progress) -> None:
+            self.batch_progress.emit(progress)
+
+        def report_recovery(
+            next_attempt: int,
+            max_attempts: int,
+            error_type: str,
+            message: str,
+        ) -> None:
+            self.capture_recovery.emit(
+                next_attempt,
+                max_attempts,
+                error_type,
+                message,
+            )
+
+        try:
+            result = run_frequency_sweep_batch(
+                fsw_factory=lambda: build_fsw_adapter(fsw_settings),
+                dsox_factory=lambda: build_dsox_adapter(dsox_settings),
+                plan=plan,
+                batch_id=batch_id,
+                output_root=Path(output_root).expanduser().resolve(),
+                fsw_timeout_s=fsw_settings.step_timeout_s,
+                cancel_check=self._cancel_event.is_set,
+                recovery_policy=self._recovery_policy,
+                progress_callback=report_progress,
+                recovery_callback=report_recovery,
+                log_callback=self.log.emit,
+            )
+        except Exception as exc:
+            self.capture_failed.emit(type(exc).__name__, str(exc))
+            self.log.emit(f"批量采集异常：{type(exc).__name__}: {exc}")
+            return
+
+        self.batch_finished.emit(result)
+        self.log.emit(
+            "频率循环采集结束："
+            f"{batch_id} · {result.state.value} · "
+            f"{result.completed_captures}/{result.total_captures}"
+        )
+
 
 class HardwareController(QObject):
     log = Signal(str)
@@ -229,10 +294,14 @@ class HardwareController(QObject):
     capture_recovery = Signal(int, int, str, str)
     capture_finished = Signal(object)
     capture_failed = Signal(str, str)
+    batch_started = Signal(str, int)
+    batch_progress = Signal(object)
+    batch_finished = Signal(object)
 
     _test_fsw_requested = Signal(object)
     _test_dsox_requested = Signal(object)
     _capture_requested = Signal(object, object, str)
+    _sweep_requested = Signal(object, object, str, object)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -244,6 +313,7 @@ class HardwareController(QObject):
         self._test_fsw_requested.connect(self._worker.test_fsw)
         self._test_dsox_requested.connect(self._worker.test_dsox)
         self._capture_requested.connect(self._worker.run_capture)
+        self._sweep_requested.connect(self._worker.run_frequency_sweep)
 
         self._worker.log.connect(self.log)
         self._worker.instrument_tested.connect(self.instrument_tested)
@@ -253,6 +323,9 @@ class HardwareController(QObject):
         self._worker.capture_recovery.connect(self.capture_recovery)
         self._worker.capture_finished.connect(self.capture_finished)
         self._worker.capture_failed.connect(self.capture_failed)
+        self._worker.batch_started.connect(self.batch_started)
+        self._worker.batch_progress.connect(self.batch_progress)
+        self._worker.batch_finished.connect(self.batch_finished)
 
         self._thread.start()
 
@@ -272,6 +345,20 @@ class HardwareController(QObject):
             fsw_settings,
             dsox_settings,
             output_root,
+        )
+
+    def start_frequency_sweep(
+        self,
+        fsw_settings: FSWRuntimeSettings,
+        dsox_settings: DSOXRuntimeSettings,
+        output_root: str,
+        plan: FrequencySweepPlan,
+    ) -> None:
+        self._sweep_requested.emit(
+            fsw_settings,
+            dsox_settings,
+            output_root,
+            plan,
         )
 
     def cancel_capture(self) -> None:

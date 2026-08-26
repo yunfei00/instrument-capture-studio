@@ -18,16 +18,22 @@ class WindowPreferences:
         "dsox/delay_source2": "delay_source2_edit",
         "dsox/cycle_source": "cycle_source_edit",
         "capture/output_root": "output_root_edit",
+        "sweep/start_mhz": "sweep_start_mhz_edit",
+        "sweep/stop_mhz": "sweep_stop_mhz_edit",
+        "sweep/step_mhz": "sweep_step_mhz_edit",
+        "sweep/span_mhz": "sweep_span_mhz_edit",
     }
 
     _COMBOS = {
         "fsw/trigger_source": "trigger_source_combo",
         "dsox/delay_edge1": "delay_edge1_combo",
         "dsox/delay_edge2": "delay_edge2_combo",
+        "capture/mode": "capture_mode_combo",
     }
 
     _SPINS = {
         "dsox/waveform_channel": "waveform_channel_spin",
+        "sweep/captures_per_frequency": "sweep_capture_count_spin",
     }
 
     def __init__(self, settings: QSettings | None = None) -> None:
@@ -38,13 +44,13 @@ class WindowPreferences:
 
     def restore(self, window) -> None:
         for key, attribute in self._LINE_EDITS.items():
-            if not self._settings.contains(key):
+            if not hasattr(window, attribute) or not self._settings.contains(key):
                 continue
             widget = getattr(window, attribute)
             widget.setText(str(self._settings.value(key, "")))
 
         for key, attribute in self._COMBOS.items():
-            if not self._settings.contains(key):
+            if not hasattr(window, attribute) or not self._settings.contains(key):
                 continue
             widget = getattr(window, attribute)
             value = str(self._settings.value(key, ""))
@@ -53,7 +59,7 @@ class WindowPreferences:
                 widget.setCurrentIndex(index)
 
         for key, attribute in self._SPINS.items():
-            if not self._settings.contains(key):
+            if not hasattr(window, attribute) or not self._settings.contains(key):
                 continue
             widget = getattr(window, attribute)
             try:
@@ -63,14 +69,20 @@ class WindowPreferences:
 
     def save(self, window) -> None:
         for key, attribute in self._LINE_EDITS.items():
+            if not hasattr(window, attribute):
+                continue
             widget = getattr(window, attribute)
             self._settings.setValue(key, widget.text())
 
         for key, attribute in self._COMBOS.items():
+            if not hasattr(window, attribute):
+                continue
             widget = getattr(window, attribute)
             self._settings.setValue(key, widget.currentText())
 
         for key, attribute in self._SPINS.items():
+            if not hasattr(window, attribute):
+                continue
             widget = getattr(window, attribute)
             self._settings.setValue(key, widget.value())
 

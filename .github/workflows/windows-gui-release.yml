@@ -11,11 +11,13 @@ on:
       - ".github/workflows/windows-gui-release.yml"
       - "pyproject.toml"
       - "scripts/run_gui.py"
+      - "scripts/phase8_preflight.py"
       - "src/instrument_capture_studio/ui/**"
       - "src/instrument_capture_studio/app/**"
       - "src/instrument_capture_studio/adapters/**"
       - "src/instrument_capture_studio/workflows/**"
       - "src/instrument_capture_studio/data/**"
+      - "src/instrument_capture_studio/reporting/**"
       - "tests/**"
 
 concurrency:
@@ -56,11 +58,16 @@ jobs:
         run: |
           pytest -q
 
-      - name: Smoke-test GUI offscreen
+      - name: Run release preflight self-check
+        shell: pwsh
+        run: |
+          python scripts/phase8_preflight.py --self-check
+
+      - name: Smoke-test product GUI offscreen
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
-          python -c "from PySide6.QtWidgets import QApplication; from instrument_capture_studio.ui.main_window import MainWindow; app = QApplication([]); window = MainWindow(); assert window.windowTitle() == 'Instrument Capture Studio'; assert window.start_button.text() == '开始采集'; window.close(); print('GUI smoke test PASS')"
+          python -c "from instrument_capture_studio.ui.app import create_application; from instrument_capture_studio.ui.product_window import MainWindow; app=create_application([]); window=MainWindow(); assert window.windowTitle() == 'Instrument Capture Studio'; assert window.start_button.text() == '开始采集'; assert window.capture_mode_combo.count() == 3; assert hasattr(window, 'template_combo'); assert hasattr(window, 'batch_report_button'); window._controller.shutdown(); window.deleteLater(); print('Product GUI smoke test PASS')"
 
       - name: Build Windows GUI bundle
         shell: pwsh
@@ -82,7 +89,10 @@ jobs:
       - name: Add build information
         shell: pwsh
         run: |
+          $version = python -c "import importlib.metadata; print(importlib.metadata.version('instrument-capture-studio'))"
           $buildInfo = @(
+            "product=Instrument Capture Studio",
+            "version=$version",
             "repository=${{ github.repository }}",
             "ref=${{ github.ref }}",
             "sha=${{ github.sha }}",

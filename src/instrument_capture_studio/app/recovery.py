@@ -17,7 +17,7 @@ from instrument_capture_studio.core.models import (
 class RecoveryPolicy:
     """Automatic reconnect/retry policy for one GUI capture request."""
 
-    max_attempts: int = 3
+    max_attempts: int = 4
     reconnect_delay_s: float = 2.0
 
     def __post_init__(self) -> None:

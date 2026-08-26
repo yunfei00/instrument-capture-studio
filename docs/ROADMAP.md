@@ -216,6 +216,10 @@ YYYY-MM-DD/
 
 ### Phase 7A - 参数持久化
 
+状态：
+
+**COMPLETE**
+
 已完成：
 
 - 自动保存上一次 FSW VISA 地址
@@ -223,11 +227,16 @@ YYYY-MM-DD/
 - 自动保存 FSW Center / Span / RBW / VBW / Trigger / Timeout
 - 自动保存 DSO-X DELAY / CYCLE_COUNT / Waveform Channel 参数
 - 自动保存数据输出目录
+- 自动保存批量扫频参数
 - 下次启动 GUI 自动恢复上一次参数
 
 原则：常用实验参数不要求用户每次重新填写。
 
 ### Phase 7B - 断线检测与自动恢复
+
+状态：
+
+**SOFTWARE COMPLETE / HARDWARE ACCEPTANCE IN PHASE 8**
 
 已完成软件能力：
 
@@ -240,6 +249,7 @@ YYYY-MM-DD/
 - GUI 显示 `RECONNECTING` 状态和重连次数
 - 正常 Trigger / Measurement timeout 不自动重试，避免把测量条件问题误判为掉线
 - 已有 FSW bounded timeout、运行中取消和安全 ABORt 能力继续复用
+- Fault Injection 自动验证通信故障后释放旧会话、重新连接并重试
 
 当前自动恢复策略：
 
@@ -257,16 +267,17 @@ YYYY-MM-DD/
 ↓
 最多 4 次
 
-验证策略调整：
+验证策略：
 
 - 开发阶段使用可重复的 Fault Injection / Fake Adapter 自动测试连接中断、通信中断和重连逻辑
-- 不要求开发人员必须在仪表旁边手工拔网线才能继续开发
-- Windows 防火墙按仪表 IP 临时阻断可作为有条件的远程网络故障模拟手段
+- Windows 防火墙按仪表 IP 临时阻断可作为有条件的网络故障模拟手段
 - FSW / DSO-X 实际拔线、插回、最大重试失败等真机异常验收统一纳入 Phase 8
 
 ### Phase 7C - 频率循环 / 批量联合采集
 
-新增为 v1.0.0 核心产品能力，不再只作为普通“连续采集”处理。
+状态：
+
+**BASELINE COMPLETE + LARGE REAL-HARDWARE RUN PASSED**
 
 用户可配置：
 
@@ -276,50 +287,56 @@ YYYY-MM-DD/
 - Span，允许 0 或仪表支持的任意有效值
 - 每个中心频率的联合采集次数
 
-示例：
-
-700 MHz → 705 MHz → ... → 800 MHz
-
-当步长为 5 MHz 时共 21 个频点；若每个频点采集 100 次，则总计 2100 次联合采集。
-
-设计要求：
-
-- 起止频率按包含起点的递增序列生成，命中结束频率时包含结束点
-- 每个频点执行完整 FSW Spectrum + DSO-X DELAY + CYCLE_COUNT + Waveform
-- Span 在整个批次中保持用户设置值
-- 不允许为每一次采集都重新建立 VISA 连接；批次正常运行时复用长连接
-- 只有发生真实连接/通信异常时才进入自动重连流程
-- 每一次联合采集仍有独立 Job ID 和完整数据文件，保证现有数据兼容性
-- 新增 Batch ID / batch manifest，记录扫频计划、总任务数、当前进度和全部 Job 映射
-- GUI 显示当前频率、当前频点次数、总完成数 / 总次数
-- 支持中途安全停止
-
-当前已完成：
+已完成：
 
 - `FrequencySweepPlan` 软件模型
 - 起始 / 结束 / 步长 / Span / 每频点采集次数验证
-- 700–800 MHz、5 MHz 步长生成 21 个频点的自动测试
+- Batch Capture Runner
+- Batch 内保持 FSW + DSO-X 长连接
+- FSW 当前中心频率动态切换
+- 每频点完整执行 Spectrum + DELAY + CYCLE_COUNT + Waveform
+- 每次采集保持独立 Job ID 和 6 个标准数据文件
+- Batch ID / `batch.json`
+- Batch 进度、当前频率、当前次数、总完成数
+- 批量模式中途安全停止
+- 批量运行中的连接/通信异常自动恢复
+- GUI “单次采集 / 频率循环采集”模式
+- GUI 起始频率 / 结束频率 / 步长 / Span / 每频点次数
+- 批量参数自动保存 / 恢复
 
-下一步：
+2026-08-26 真机长时间批量验证：
 
-1. 建立 Batch Capture Runner，批次内保持 FSW + DSO-X 长连接
-2. 增加 FSW 当前中心频率动态配置能力
-3. 增加 Batch Manifest 和 Batch 进度模型
-4. GUI 增加“单次采集 / 频率循环采集”模式
-5. GUI 增加起始频率、结束频率、步长、Span、每频点次数
-6. 将上述参数一并纳入自动保存 / 恢复
-7. 软件 Fault Injection 验证批次中断线后自动恢复并继续
+- 700 MHz → 800 MHz
+- 步长 5 MHz
+- 21 个频点
+- 每频点 100 次完整联合采集
+- 总计 2100 次联合采集完成
 
-### Phase 7D - 后续产品能力
+该验证说明 Batch 长连接、动态频率切换、大规模 Job 数据保存和 GUI 长时间运行链路已具备实际可用基础。
+
+### Phase 7D - 产品增强
+
+当前已完成：
+
+- 命名实验配置模板保存 / 加载 / 删除
+- 模板保存 VISA、FSW、DSO-X、扫频和输出目录参数
+- 针对数千 Job 数据集的 Batch / Job 摘要浏览模型
+- GUI 只展示最近 Batch / Job，避免一次性渲染数万个文件项
+- 双击 Job 打开数据目录
+- 双击 `batch.json` / `job.json` / `metadata.json` 查看结构化详情
+- 双击 `spectrum.npz` 查看频谱曲线
+- 双击 `waveform.npz` 查看时域波形
+- 大数组曲线预览自动抽样，避免 GUI 因数万点绘图卡顿
+
+后续目标：
 
 - 仪表忙处理
 - 更完整的异常恢复
-- 普通连续采集
-- 配置模板
-- 数据可视化
+- 普通连续采集模式
 - 批量转图
 - HTML / PDF 报告
 - 长期运行日志
+- UI 细节与产品体验优化
 
 结果：
 

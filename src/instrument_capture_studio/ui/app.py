@@ -5,7 +5,7 @@ import sys
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication
 
-from instrument_capture_studio.ui.enhanced_window import MainWindow
+from instrument_capture_studio.ui.product_window import MainWindow
 
 
 def create_application(argv: list[str] | None = None) -> QApplication:

@@ -219,7 +219,7 @@ YYYY-MM-DD/
 - 连接异常与通信异常分类
 - Capture Job 运行中通信故障检测
 - 自动重新创建全新的 VISA / Driver / Adapter 会话
-- 默认最多 3 次 Capture 尝试
+- 默认最多 4 次 Capture 尝试
 - 自动重连等待 2 秒，等待期间可立即响应用户停止
 - 重试使用新的 Job ID，保留前一次失败的 job.json，不覆盖故障证据
 - GUI 显示 `RECONNECTING` 状态和重连次数
@@ -240,7 +240,7 @@ YYYY-MM-DD/
 ↓
 使用新 Job ID 从完整 Capture Workflow 重新开始
 ↓
-最多 3 次
+最多 4 次
 
 待真机验收：
 

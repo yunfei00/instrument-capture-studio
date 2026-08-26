@@ -34,6 +34,7 @@ class WindowPreferences:
     _SPINS = {
         "dsox/waveform_channel": "waveform_channel_spin",
         "sweep/captures_per_frequency": "sweep_capture_count_spin",
+        "continuous/captures": "repeat_capture_count_spin",
     }
 
     def __init__(self, settings: QSettings | None = None) -> None:

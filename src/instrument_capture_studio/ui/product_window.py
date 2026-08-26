@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QTreeWidgetItem,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -28,6 +29,7 @@ from instrument_capture_studio.data.session_log import (
     SessionLogWriter,
     default_session_log_directory,
 )
+from instrument_capture_studio.reporting.batch_report import export_batch_report
 from instrument_capture_studio.ui.enhanced_window import MainWindow as Phase7MainWindow
 from instrument_capture_studio.ui.trace_viewer import (
     JsonViewerDialog,
@@ -36,15 +38,17 @@ from instrument_capture_studio.ui.trace_viewer import (
 
 
 class MainWindow(Phase7MainWindow):
-    """Phase 7 product window with templates, browsing, plots, and disk logs."""
+    """Phase 7 product window with templates, browsing, plots, reports, and logs."""
 
     def __init__(self) -> None:
         super().__init__()
         self._session_log = SessionLogWriter(default_session_log_directory())
         self._template_store = CaptureTemplateStore(default_template_directory())
         self._install_template_controls()
+        self._install_result_actions()
         self._refresh_template_list()
         self.data_tree.itemDoubleClicked.connect(self._open_data_item)
+        self.data_tree.itemSelectionChanged.connect(self._update_result_actions)
         self.data_tree.setToolTip(
             "双击 Job 打开目录；双击 NPZ 查看曲线；双击 JSON 查看详情。"
         )
@@ -85,6 +89,28 @@ class MainWindow(Phase7MainWindow):
         self.template_save_button.clicked.connect(self._save_capture_template)
         self.template_load_button.clicked.connect(self._load_capture_template)
         self.template_delete_button.clicked.connect(self._delete_capture_template)
+
+    def _install_result_actions(self) -> None:
+        group = self.data_tree.parentWidget()
+        layout = group.layout()
+        toolbar = QWidget(group)
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.batch_report_button = QPushButton("生成选中 Batch HTML 报告")
+        self.batch_report_button.setEnabled(False)
+        self.open_session_log_button = QPushButton("打开本次会话日志")
+        toolbar_layout.addWidget(self.batch_report_button)
+        toolbar_layout.addWidget(self.open_session_log_button)
+        toolbar_layout.addStretch(1)
+
+        if isinstance(layout, QVBoxLayout):
+            layout.insertWidget(1, toolbar)
+        else:
+            layout.addWidget(toolbar)
+
+        self.batch_report_button.clicked.connect(self._generate_batch_report)
+        self.open_session_log_button.clicked.connect(self._open_session_log)
 
     def _refresh_template_list(self, selected: str | None = None) -> None:
         names = self._template_store.list_names()
@@ -170,17 +196,22 @@ class MainWindow(Phase7MainWindow):
             "template_save_button",
             "template_load_button",
             "template_delete_button",
+            "batch_report_button",
         ):
             if hasattr(self, attribute):
                 getattr(self, attribute).setEnabled(not busy)
         if hasattr(self, "_template_store") and not busy:
             self._refresh_template_list()
+        if hasattr(self, "batch_report_button"):
+            self._update_result_actions()
 
     def _refresh_data_tree(self) -> None:
         self.data_tree.clear()
         root = Path(self.output_root_edit.text()).expanduser()
         if not root.exists():
             self.data_tree.addTopLevelItem(QTreeWidgetItem(["暂无数据", str(root)]))
+            if hasattr(self, "batch_report_button"):
+                self._update_result_actions()
             return
 
         batches = list_recent_batches(root, limit=50)
@@ -253,6 +284,54 @@ class MainWindow(Phase7MainWindow):
             self.data_tree.addTopLevelItem(
                 QTreeWidgetItem(["暂无可识别的 Batch / Job", str(root)])
             )
+        if hasattr(self, "batch_report_button"):
+            self._update_result_actions()
+
+    def _selected_batch_manifest(self) -> Path | None:
+        item = self.data_tree.currentItem()
+        while item is not None:
+            raw_path = item.data(0, Qt.ItemDataRole.UserRole)
+            if raw_path:
+                path = Path(str(raw_path))
+                if path.is_file() and path.name == "batch.json":
+                    return path
+                if path.is_dir() and (path / "batch.json").exists():
+                    return path / "batch.json"
+            item = item.parent()
+        return None
+
+    def _update_result_actions(self) -> None:
+        if not hasattr(self, "batch_report_button"):
+            return
+        enabled = (
+            not self._capture_busy
+            and self._selected_batch_manifest() is not None
+        )
+        self.batch_report_button.setEnabled(enabled)
+
+    def _generate_batch_report(self) -> None:
+        manifest_path = self._selected_batch_manifest()
+        if manifest_path is None:
+            QMessageBox.information(self, "Batch 报告", "请先选择一个 Batch。")
+            return
+        try:
+            result = export_batch_report(manifest_path)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "生成报告失败",
+                f"{type(exc).__name__}: {exc}",
+            )
+            self._append_log(f"生成 Batch 报告失败：{type(exc).__name__}: {exc}")
+            return
+
+        self._append_log(
+            f"Batch HTML 报告：{result.report_html} · SVG {result.asset_count} 张"
+        )
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(result.report_html)))
+
+    def _open_session_log(self) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._session_log.path)))
 
     def _open_data_item(self, item: QTreeWidgetItem, _column: int) -> None:
         raw_path = item.data(0, Qt.ItemDataRole.UserRole)

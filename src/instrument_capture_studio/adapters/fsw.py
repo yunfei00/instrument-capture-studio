@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Protocol
 
 from instrument_capture_studio.adapters.driver_guard import DriverErrorGuard
@@ -121,6 +121,30 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
             asdict(
                 self._config
             )
+        )
+
+    def configure_frequency(
+        self,
+        center_frequency_hz: float,
+        span_hz: float,
+    ) -> None:
+        """Update the frequency point used by the next spectrum acquisition.
+
+        Batch capture keeps one VISA session open and only changes the FSW
+        frequency configuration between Capture Jobs.
+        """
+
+        center_frequency_hz = float(center_frequency_hz)
+        span_hz = float(span_hz)
+        if center_frequency_hz < 0:
+            raise ValueError("center_frequency_hz must not be negative")
+        if span_hz < 0:
+            raise ValueError("span_hz must not be negative")
+
+        self._config = replace(
+            self._config,
+            center_frequency_hz=center_frequency_hz,
+            span_hz=span_hz,
         )
 
     def connect(self) -> None:

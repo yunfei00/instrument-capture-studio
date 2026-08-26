@@ -70,7 +70,7 @@ Phase 8 完成后发布 v1.0.0。
 
 状态：
 
-**SOFTWARE COMPLETE**
+**COMPLETE**
 
 已完成：
 
@@ -89,13 +89,10 @@ Phase 8 完成后发布 v1.0.0。
 - 无 GUI CLI 联合采集入口
 - FSW timeout 真机验证
 - FSW runtime cancel 真机验证
+- DSO-X 3034A 真机参与联合采集验证
+- FSW + DSO-X 双仪表完整联合采集验证
 
-待硬件补充验收：
-
-- DSO-X 3034A 真机采集
-- FSW + DSO-X 双仪表完整联合采集
-
-以上硬件待测项不阻塞 Phase 5 软件开发。
+2026-08-26：通过 Windows GUI 使用默认界面配置完成 FSW + DSO-X 双仪表完整联合采集。
 
 目标：
 
@@ -108,6 +105,8 @@ FSW Spectrum
 DSO-X DELAY
 ↓
 DSO-X CYCLES
+↓
+DSO-X Waveform
 ↓
 Save Result
 
@@ -122,7 +121,7 @@ Save Result
 
 结果：
 
-可以无 GUI 完成一次完整联合采集。
+可以无 GUI 或通过 GUI 完成一次完整联合采集。
 
 ---
 
@@ -130,7 +129,7 @@ Save Result
 
 状态：
 
-**SOFTWARE COMPLETE**
+**COMPLETE**
 
 已完成：
 
@@ -152,6 +151,7 @@ Save Result
 - CLI 真实磁盘保存入口
 - 同一 Job 跨午夜保持单一目录
 - 运行时 data 目录 Git 忽略规则
+- 双仪表真机完整数据目录验证
 
 数据目录：
 
@@ -168,35 +168,43 @@ YYYY-MM-DD/
 
 一次采集可以产生完整、可追踪、可重新加载的数据目录。
 
-Phase 5 软件功能完成。
-
-DSO-X 3034A 真机及 FSW + DSO-X 双仪表完整数据目录，
-随 Phase 4 / Phase 8 的硬件验收统一补测。
+2026-08-26：GUI 真机联合采集确认生成全部 6 个标准文件：
+`job.json`、`metadata.json`、`spectrum.csv`、`spectrum.npz`、`waveform.csv`、`waveform.npz`。
 
 ---
 
 ## Phase 6 - 商业桌面 UI
 
-目标：
+状态：
 
-使用 PySide6 建立基础商业界面。
+**BASELINE COMPLETE**
 
-包括：
+已完成：
 
-- DSO-X 连接状态
-- FSW 连接状态
+- Windows PySide6 GUI
+- DSO-X 连接状态与连接测试
+- FSW 连接状态与连接测试
 - 仪表地址配置
-- 参数配置
+- FSW / DSO-X 参数配置
 - 开始采集
 - 停止采集
-- 采集进度
+- 实时 Capture Step 进度
 - Job 状态
 - 日志窗口
 - 数据浏览
+- Windows EXE 启动验证
+- FSW 真机连接测试
+- DSO-X 真机连接测试
+- GUI 双仪表完整联合采集验证
+- 完整数据目录落盘验证
+
+2026-08-26：Windows GUI 使用默认配置完成真实 FSW + DSO-X 联合采集，数据目录完整生成。
 
 结果：
 
-用户不需要操作命令行即可完成采集。
+用户不需要操作命令行即可完成仪表连接测试、联合采集和结果保存。
+
+界面细节优化、长期运行能力、连续采集、模板、可视化和报告进入 Phase 7。
 
 ---
 

@@ -4,7 +4,7 @@ from PySide6.QtCore import QSettings
 
 
 class WindowPreferences:
-    """Save and restore the last values entered in the main capture window."""
+    """Save, restore, export, and apply capture-window parameter values."""
 
     _LINE_EDITS = {
         "fsw/resource": "fsw_resource_edit",
@@ -42,48 +42,54 @@ class WindowPreferences:
             "InstrumentCaptureStudio",
         )
 
-    def restore(self, window) -> None:
+    def snapshot(self, window) -> dict[str, object]:
+        values: dict[str, object] = {}
+
         for key, attribute in self._LINE_EDITS.items():
-            if not hasattr(window, attribute) or not self._settings.contains(key):
-                continue
-            widget = getattr(window, attribute)
-            widget.setText(str(self._settings.value(key, "")))
+            if hasattr(window, attribute):
+                values[key] = getattr(window, attribute).text()
 
         for key, attribute in self._COMBOS.items():
-            if not hasattr(window, attribute) or not self._settings.contains(key):
+            if hasattr(window, attribute):
+                values[key] = getattr(window, attribute).currentText()
+
+        for key, attribute in self._SPINS.items():
+            if hasattr(window, attribute):
+                values[key] = getattr(window, attribute).value()
+
+        return values
+
+    def apply(self, window, values: dict[str, object]) -> None:
+        for key, attribute in self._LINE_EDITS.items():
+            if key not in values or not hasattr(window, attribute):
+                continue
+            getattr(window, attribute).setText(str(values[key]))
+
+        for key, attribute in self._COMBOS.items():
+            if key not in values or not hasattr(window, attribute):
                 continue
             widget = getattr(window, attribute)
-            value = str(self._settings.value(key, ""))
+            value = str(values[key])
             index = widget.findText(value)
             if index >= 0:
                 widget.setCurrentIndex(index)
 
         for key, attribute in self._SPINS.items():
-            if not hasattr(window, attribute) or not self._settings.contains(key):
+            if key not in values or not hasattr(window, attribute):
                 continue
-            widget = getattr(window, attribute)
             try:
-                widget.setValue(int(self._settings.value(key)))
+                getattr(window, attribute).setValue(int(values[key]))
             except (TypeError, ValueError):
                 continue
 
+    def restore(self, window) -> None:
+        values: dict[str, object] = {}
+        for key in (*self._LINE_EDITS, *self._COMBOS, *self._SPINS):
+            if self._settings.contains(key):
+                values[key] = self._settings.value(key)
+        self.apply(window, values)
+
     def save(self, window) -> None:
-        for key, attribute in self._LINE_EDITS.items():
-            if not hasattr(window, attribute):
-                continue
-            widget = getattr(window, attribute)
-            self._settings.setValue(key, widget.text())
-
-        for key, attribute in self._COMBOS.items():
-            if not hasattr(window, attribute):
-                continue
-            widget = getattr(window, attribute)
-            self._settings.setValue(key, widget.currentText())
-
-        for key, attribute in self._SPINS.items():
-            if not hasattr(window, attribute):
-                continue
-            widget = getattr(window, attribute)
-            self._settings.setValue(key, widget.value())
-
+        for key, value in self.snapshot(window).items():
+            self._settings.setValue(key, value)
         self._settings.sync()

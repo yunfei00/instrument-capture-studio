@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPointF, Qt
 from PySide6.QtGui import QPainter
 from PySide6.QtWidgets import QDialog, QPlainTextEdit, QVBoxLayout
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
@@ -42,8 +42,8 @@ class TraceViewerDialog(QDialog):
         _set_axis_range(axis_x, preview.x)
         _set_axis_range(axis_y, preview.y)
 
-        chart.addAxis(axis_x, 0x4)  # AlignBottom
-        chart.addAxis(axis_y, 0x1)  # AlignLeft
+        chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
+        chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
         series.attachAxis(axis_x)
         series.attachAxis(axis_y)
 

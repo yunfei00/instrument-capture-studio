@@ -1,4 +1,4 @@
-"""Phase 6 enhancements layered on top of the stable main window."""
+"""Phase 6/7 enhancements layered on top of the stable main window."""
 
 from instrument_capture_studio.ui.main_window import MainWindow as BaseMainWindow
 
@@ -13,12 +13,13 @@ _STEP_LABELS = {
 
 
 class MainWindow(BaseMainWindow):
-    """Stable Phase 6 window with real Capture Step progress."""
+    """Stable window with real step progress and reconnect feedback."""
 
     def __init__(self) -> None:
         super().__init__()
         self._controller.capture_progress.connect(self._on_capture_progress)
-        self.statusBar().showMessage("就绪 · Phase 6")
+        self._controller.capture_recovery.connect(self._on_capture_recovery)
+        self.statusBar().showMessage("就绪 · Phase 7")
 
     def _on_capture_progress(
         self,
@@ -45,3 +46,24 @@ class MainWindow(BaseMainWindow):
             self._append_log(f"✓ {label}")
         else:
             self.progress_bar.setFormat(f"{percent}% · {label} {state}")
+
+    def _on_capture_recovery(
+        self,
+        next_attempt: int,
+        max_attempts: int,
+        error_type: str,
+        message: str,
+    ) -> None:
+        self.job_state_label.setText("RECONNECTING")
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setFormat(
+            f"自动重连 · {next_attempt}/{max_attempts}"
+        )
+        self._append_log(
+            "↻ 自动重连："
+            f"{error_type}: {message} "
+            f"· 下一次尝试 {next_attempt}/{max_attempts}"
+        )
+        self.statusBar().showMessage(
+            f"仪表通信中断，正在自动重连 · {next_attempt}/{max_attempts}"
+        )

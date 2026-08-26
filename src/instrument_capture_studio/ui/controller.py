@@ -12,6 +12,11 @@ from uuid import uuid4
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from instrument_capture_studio.app.combined_capture import run_combined_capture
+from instrument_capture_studio.app.recovery import (
+    RecoveryPolicy,
+    recovery_reason_from_exception,
+    recovery_reason_from_result,
+)
 from instrument_capture_studio.app.runtime import (
     DSOXRuntimeSettings,
     FSWRuntimeSettings,
@@ -27,12 +32,14 @@ class HardwareWorker(QObject):
     instrument_test_failed = Signal(str, str, str)
     capture_started = Signal(str)
     capture_progress = Signal(str, str, int, int)
+    capture_recovery = Signal(int, int, str, str)
     capture_finished = Signal(object)
     capture_failed = Signal(str, str)
 
     def __init__(self, cancel_event: Event) -> None:
         super().__init__()
         self._cancel_event = cancel_event
+        self._recovery_policy = RecoveryPolicy()
 
     @Slot(object)
     def test_fsw(self, settings: FSWRuntimeSettings) -> None:
@@ -79,6 +86,35 @@ class HardwareWorker(QObject):
                         f"{key.upper()} 测试断开失败：{type(exc).__name__}: {exc}"
                     )
 
+    def _wait_for_recovery(
+        self,
+        *,
+        current_attempt: int,
+        error_type: str,
+        message: str,
+    ) -> bool:
+        next_attempt = current_attempt + 1
+        policy = self._recovery_policy
+
+        self.capture_recovery.emit(
+            next_attempt,
+            policy.max_attempts,
+            error_type,
+            message,
+        )
+        self.log.emit(
+            "检测到仪表连接/通信中断，"
+            f"{policy.reconnect_delay_s:g}s 后自动重新建立 VISA 会话；"
+            f"下一次尝试 {next_attempt}/{policy.max_attempts}。"
+        )
+
+        canceled = self._cancel_event.wait(policy.reconnect_delay_s)
+        if canceled:
+            self.log.emit("自动重连等待期间收到停止请求。")
+            return False
+
+        return True
+
     @Slot(object, object, str)
     def run_capture(
         self,
@@ -87,9 +123,8 @@ class HardwareWorker(QObject):
         output_root: str,
     ) -> None:
         self._cancel_event.clear()
-        job_id = f"capture-{uuid4().hex[:12]}"
-        self.capture_started.emit(job_id)
-        self.log.emit(f"开始联合采集：{job_id}")
+        base_job_id = f"capture-{uuid4().hex[:12]}"
+        output_path = Path(output_root).expanduser().resolve()
 
         def report_progress(
             step_name: str,
@@ -104,30 +139,85 @@ class HardwareWorker(QObject):
                 step_count,
             )
 
-        try:
-            fsw = build_fsw_adapter(fsw_settings)
-            dsox = build_dsox_adapter(dsox_settings)
-            sink = JobDirectoryResultSink(
-                Path(output_root).expanduser().resolve()
-            )
+        attempt = 1
+        while attempt <= self._recovery_policy.max_attempts:
+            if self._cancel_event.is_set():
+                self.capture_failed.emit(
+                    "CaptureCanceledError",
+                    "capture canceled before reconnect",
+                )
+                return
 
-            result = run_combined_capture(
-                fsw,
-                dsox,
-                job_id=job_id,
-                fsw_timeout_s=fsw_settings.step_timeout_s,
-                cancel_check=self._cancel_event.is_set,
-                result_sink=sink,
-                job_manifest_sink=sink,
-                progress_callback=report_progress,
+            job_id = (
+                base_job_id
+                if attempt == 1
+                else f"{base_job_id}-retry{attempt}"
             )
-        except Exception as exc:
-            self.capture_failed.emit(type(exc).__name__, str(exc))
-            self.log.emit(f"采集异常：{type(exc).__name__}: {exc}")
+            self.capture_started.emit(job_id)
+
+            if attempt == 1:
+                self.log.emit(f"开始联合采集：{job_id}")
+            else:
+                self.log.emit(
+                    f"自动重连后重新执行完整 Capture Job：{job_id}"
+                )
+
+            sink = JobDirectoryResultSink(output_path)
+
+            try:
+                fsw = build_fsw_adapter(fsw_settings)
+                dsox = build_dsox_adapter(dsox_settings)
+                result = run_combined_capture(
+                    fsw,
+                    dsox,
+                    job_id=job_id,
+                    fsw_timeout_s=fsw_settings.step_timeout_s,
+                    cancel_check=self._cancel_event.is_set,
+                    result_sink=sink,
+                    job_manifest_sink=sink,
+                    progress_callback=report_progress,
+                )
+            except Exception as exc:
+                reason = recovery_reason_from_exception(exc)
+                if (
+                    reason is not None
+                    and self._recovery_policy.can_retry(attempt)
+                    and self._wait_for_recovery(
+                        current_attempt=attempt,
+                        error_type=reason.error_type,
+                        message=reason.message,
+                    )
+                ):
+                    attempt += 1
+                    continue
+
+                self.capture_failed.emit(
+                    type(exc).__name__,
+                    str(exc),
+                )
+                self.log.emit(
+                    f"采集异常：{type(exc).__name__}: {exc}"
+                )
+                return
+
+            reason = recovery_reason_from_result(result)
+            if (
+                reason is not None
+                and self._recovery_policy.can_retry(attempt)
+                and self._wait_for_recovery(
+                    current_attempt=attempt,
+                    error_type=reason.error_type,
+                    message=reason.message,
+                )
+            ):
+                attempt += 1
+                continue
+
+            self.capture_finished.emit(result)
+            self.log.emit(
+                f"采集结束：{job_id} · {result.state.value}"
+            )
             return
-
-        self.capture_finished.emit(result)
-        self.log.emit(f"采集结束：{job_id} · {result.state.value}")
 
 
 class HardwareController(QObject):
@@ -136,6 +226,7 @@ class HardwareController(QObject):
     instrument_test_failed = Signal(str, str, str)
     capture_started = Signal(str)
     capture_progress = Signal(str, str, int, int)
+    capture_recovery = Signal(int, int, str, str)
     capture_finished = Signal(object)
     capture_failed = Signal(str, str)
 
@@ -159,6 +250,7 @@ class HardwareController(QObject):
         self._worker.instrument_test_failed.connect(self.instrument_test_failed)
         self._worker.capture_started.connect(self.capture_started)
         self._worker.capture_progress.connect(self.capture_progress)
+        self._worker.capture_recovery.connect(self.capture_recovery)
         self._worker.capture_finished.connect(self.capture_finished)
         self._worker.capture_failed.connect(self.capture_failed)
 

@@ -1,6 +1,7 @@
 """Phase 6/7 enhancements layered on top of the stable main window."""
 
 from instrument_capture_studio.ui.main_window import MainWindow as BaseMainWindow
+from instrument_capture_studio.ui.preferences import WindowPreferences
 
 
 _STEP_LABELS = {
@@ -13,13 +14,68 @@ _STEP_LABELS = {
 
 
 class MainWindow(BaseMainWindow):
-    """Stable window with real step progress and reconnect feedback."""
+    """Stable window with progress, reconnect feedback, and saved parameters."""
 
     def __init__(self) -> None:
         super().__init__()
+        self._preferences = WindowPreferences()
+        self._preferences.restore(self)
+        self._wire_preference_saves()
+        self._refresh_data_tree()
+
         self._controller.capture_progress.connect(self._on_capture_progress)
         self._controller.capture_recovery.connect(self._on_capture_recovery)
         self.statusBar().showMessage("就绪 · Phase 7")
+
+    def _wire_preference_saves(self) -> None:
+        line_edits = (
+            self.fsw_resource_edit,
+            self.center_hz_edit,
+            self.span_hz_edit,
+            self.rbw_hz_edit,
+            self.vbw_hz_edit,
+            self.fsw_timeout_edit,
+            self.dsox_resource_edit,
+            self.delay_source1_edit,
+            self.delay_source2_edit,
+            self.cycle_source_edit,
+            self.output_root_edit,
+        )
+        for widget in line_edits:
+            widget.editingFinished.connect(self._save_preferences)
+
+        combos = (
+            self.trigger_source_combo,
+            self.delay_edge1_combo,
+            self.delay_edge2_combo,
+        )
+        for widget in combos:
+            widget.currentTextChanged.connect(self._save_preferences)
+
+        self.waveform_channel_spin.valueChanged.connect(self._save_preferences)
+
+    def _save_preferences(self, *_args) -> None:
+        self._preferences.save(self)
+
+    def _test_fsw_connection(self) -> None:
+        self._save_preferences()
+        super()._test_fsw_connection()
+
+    def _test_dsox_connection(self) -> None:
+        self._save_preferences()
+        super()._test_dsox_connection()
+
+    def _start_capture(self) -> None:
+        self._save_preferences()
+        super()._start_capture()
+
+    def _choose_output_root(self) -> None:
+        super()._choose_output_root()
+        self._save_preferences()
+
+    def closeEvent(self, event) -> None:
+        self._save_preferences()
+        super().closeEvent(event)
 
     def _on_capture_progress(
         self,

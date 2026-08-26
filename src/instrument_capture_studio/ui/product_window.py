@@ -24,6 +24,10 @@ from instrument_capture_studio.data.data_browser import (
     list_recent_batches,
     list_recent_jobs,
 )
+from instrument_capture_studio.data.session_log import (
+    SessionLogWriter,
+    default_session_log_directory,
+)
 from instrument_capture_studio.ui.enhanced_window import MainWindow as Phase7MainWindow
 from instrument_capture_studio.ui.trace_viewer import (
     JsonViewerDialog,
@@ -32,10 +36,11 @@ from instrument_capture_studio.ui.trace_viewer import (
 
 
 class MainWindow(Phase7MainWindow):
-    """Phase 7 product window with named templates and scalable result browsing."""
+    """Phase 7 product window with templates, browsing, plots, and disk logs."""
 
     def __init__(self) -> None:
         super().__init__()
+        self._session_log = SessionLogWriter(default_session_log_directory())
         self._template_store = CaptureTemplateStore(default_template_directory())
         self._install_template_controls()
         self._refresh_template_list()
@@ -44,6 +49,7 @@ class MainWindow(Phase7MainWindow):
             "双击 Job 打开目录；双击 NPZ 查看曲线；双击 JSON 查看详情。"
         )
         self._refresh_data_tree()
+        self._append_log(f"会话日志：{self._session_log.path}")
         self.statusBar().showMessage("就绪 · Phase 7 Product")
 
     def _install_template_controls(self) -> None:
@@ -91,11 +97,11 @@ class MainWindow(Phase7MainWindow):
             if index >= 0:
                 self.template_combo.setCurrentIndex(index)
         self.template_combo.blockSignals(False)
-        self.template_load_button.setEnabled(bool(names))
-        self.template_delete_button.setEnabled(bool(names))
+        self.template_load_button.setEnabled(bool(names) and not self._capture_busy)
+        self.template_delete_button.setEnabled(bool(names) and not self._capture_busy)
 
     def _on_template_selected(self, name: str) -> None:
-        if name and not self.template_name_edit.text().strip():
+        if name:
             self.template_name_edit.setText(name)
 
     def _save_capture_template(self) -> None:
@@ -155,6 +161,20 @@ class MainWindow(Phase7MainWindow):
         self.template_name_edit.clear()
         self._refresh_template_list()
         self._append_log(f"已删除配置模板：{name}")
+
+    def _set_capture_busy(self, busy: bool) -> None:
+        super()._set_capture_busy(busy)
+        for attribute in (
+            "template_combo",
+            "template_name_edit",
+            "template_save_button",
+            "template_load_button",
+            "template_delete_button",
+        ):
+            if hasattr(self, attribute):
+                getattr(self, attribute).setEnabled(not busy)
+        if hasattr(self, "_template_store") and not busy:
+            self._refresh_template_list()
 
     def _refresh_data_tree(self) -> None:
         self.data_tree.clear()
@@ -260,6 +280,18 @@ class MainWindow(Phase7MainWindow):
                 "打开数据失败",
                 f"{type(exc).__name__}: {exc}",
             )
+
+    def _append_log(self, message: str) -> None:
+        if hasattr(self, "_session_log"):
+            try:
+                self._session_log.append(message)
+            except OSError:
+                pass
+        super()._append_log(message)
+
+    def closeEvent(self, event) -> None:
+        self._append_log("GUI 关闭请求")
+        super().closeEvent(event)
 
 
 def _file_description(path: Path) -> str:

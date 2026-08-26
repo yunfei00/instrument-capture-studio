@@ -327,15 +327,19 @@ YYYY-MM-DD/
 - 双击 `spectrum.npz` 查看频谱曲线
 - 双击 `waveform.npz` 查看时域波形
 - 大数组曲线预览自动抽样，避免 GUI 因数万点绘图卡顿
+- 桌面会话日志持久化到用户目录，适合长时间运行问题追踪
+- Batch HTML 报告生成
+- 完整 Batch Job 明细导出为 `jobs.csv`
+- 每个频点自动选择一个成功 Job 生成代表性 Spectrum / Waveform SVG 曲线
+- GUI 选择 Batch 后一键生成并打开 HTML 报告
 
 后续目标：
 
 - 仪表忙处理
 - 更完整的异常恢复
 - 普通连续采集模式
-- 批量转图
-- HTML / PDF 报告
-- 长期运行日志
+- 全量批量转图模式
+- PDF 报告
 - UI 细节与产品体验优化
 
 结果：

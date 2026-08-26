@@ -51,11 +51,16 @@ def _self_check() -> bool:
         import numpy
         import PySide6
         import instrument_capture_studio
-        from instrument_capture_studio.ui.product_window import MainWindow  # noqa: F401
+        from instrument_capture_studio.ui.app import (
+            create_application,
+            create_main_window,
+        )
+        from instrument_capture_studio.ui.final_window import MainWindow  # noqa: F401
     except Exception as exc:
         print(f"FAIL: runtime import error: {type(exc).__name__}: {exc}")
         return False
 
+    _ = instrument_capture_studio, create_application, create_main_window
     print(f"NumPy: {numpy.__version__}")
     print(f"PySide6: {PySide6.__version__}")
     print("PASS: release runtime imports")

@@ -63,11 +63,11 @@ jobs:
         run: |
           python scripts/phase8_preflight.py --self-check
 
-      - name: Smoke-test product GUI offscreen
+      - name: Smoke-test real product GUI offscreen
         shell: pwsh
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
-          python -c "from instrument_capture_studio.ui.app import create_application; from instrument_capture_studio.ui.product_window import MainWindow; app=create_application([]); window=MainWindow(); assert window.windowTitle() == 'Instrument Capture Studio'; assert window.start_button.text() == '开始采集'; assert window.capture_mode_combo.count() == 3; assert hasattr(window, 'template_combo'); assert hasattr(window, 'batch_report_button'); window._controller.shutdown(); window.deleteLater(); print('Product GUI smoke test PASS')"
+          python -c "from PySide6.QtWidgets import QLabel; from instrument_capture_studio.ui.app import create_application, create_main_window; app=create_application([]); window=create_main_window(); assert window.windowTitle() == 'Instrument Capture Studio'; assert window.capture_mode_combo.count() == 3; assert window.capture_mode_combo.findText('固定频率连续采集') >= 0; assert hasattr(window, 'template_combo'); assert hasattr(window, 'batch_report_button'); assert hasattr(window, 'batch_trace_export_button'); badge=window.findChild(QLabel, 'alphaBadge'); assert badge is not None and badge.text() == 'v0.9 · RC1'; window._controller.shutdown(); window.deleteLater(); print('Real product GUI smoke test PASS')"
 
       - name: Build Windows GUI bundle
         shell: pwsh

@@ -8,6 +8,11 @@ from pathlib import Path
 import numpy as np
 
 from instrument_capture_studio.data.batch_manifest import load_batch_manifest
+from instrument_capture_studio.data.timing import (
+    BatchTimingSummary,
+    TimingMetric,
+    summarize_batch_timings,
+)
 from instrument_capture_studio.data.trace_preview import TracePreview, load_trace_preview
 
 
@@ -15,6 +20,7 @@ from instrument_capture_studio.data.trace_preview import TracePreview, load_trac
 class BatchReportResult:
     report_html: Path
     jobs_csv: Path
+    timing_csv: Path
     asset_count: int
 
 
@@ -24,6 +30,17 @@ _TRACE_COLUMNS = (
     ("waveform_delay.npz", "waveform-delay", "查看 DELAY 波形"),
     ("waveform_cycle.npz", "waveform-cycle", "查看 CYCLE 波形"),
 )
+
+_TIMING_LABELS = {
+    "frequency_config": "FSW 频率配置",
+    "job_total": "完整 Job",
+    "fsw_ext_arm": "FSW EXT ARM",
+    "dsox_delay_group": "DSO-X DELAY 组",
+    "fsw_ext_read": "FSW EXT wait/read",
+    "dsox_cycle_group": "DSO-X CYCLE 组",
+    "fsw_imm": "FSW IMM",
+    "save_result": "保存结果",
+}
 
 
 def export_batch_report(
@@ -35,7 +52,7 @@ def export_batch_report(
     One representative successful Job is plotted for each frequency point. A
     paired training Job can contribute four traces: EXT spectrum, IMM spectrum,
     DELAY waveform and CYCLE_COUNT waveform. The full Job list stays in jobs.csv
-    so large batches remain lightweight.
+    and persisted node timings are summarized as avg/P95/max in timing.csv.
     """
 
     manifest_path = Path(manifest_path)
@@ -52,6 +69,10 @@ def export_batch_report(
 
     jobs_csv = destination / "jobs.csv"
     _write_jobs_csv(jobs_csv, jobs)
+
+    timing_summary = summarize_batch_timings(manifest_path)
+    timing_csv = destination / "timing.csv"
+    _write_timing_csv(timing_csv, timing_summary)
 
     representatives = _representative_jobs_by_frequency(jobs)
     frequency_rows: list[str] = []
@@ -106,6 +127,8 @@ def export_batch_report(
             plan=plan,
             frequency_rows="\n".join(frequency_rows),
             jobs_csv_name=jobs_csv.name,
+            timing_csv_name=timing_csv.name,
+            timing_summary=timing_summary,
         ),
         encoding="utf-8",
     )
@@ -113,6 +136,7 @@ def export_batch_report(
     return BatchReportResult(
         report_html=report_html,
         jobs_csv=jobs_csv,
+        timing_csv=timing_csv,
         asset_count=asset_count,
     )
 
@@ -231,6 +255,8 @@ def _write_jobs_csv(path: Path, jobs: list[object]) -> None:
         "frequency_index",
         "capture_index",
         "attempt",
+        "resume_sequence",
+        "frequency_config_duration_ms",
         "started_at",
         "finished_at",
         "error",
@@ -244,12 +270,58 @@ def _write_jobs_csv(path: Path, jobs: list[object]) -> None:
             writer.writerow({field: raw.get(field) for field in fields})
 
 
+def _timing_rows(summary: BatchTimingSummary):
+    if summary.job_total is not None:
+        yield "job_total", summary.job_total
+    if summary.frequency_config is not None:
+        yield "frequency_config", summary.frequency_config
+    for name, metric in summary.steps.items():
+        yield name, metric
+
+
+def _write_timing_csv(path: Path, summary: BatchTimingSummary) -> None:
+    fields = ("node", "label", "samples", "average_ms", "p95_ms", "max_ms")
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for name, metric in _timing_rows(summary):
+            writer.writerow(
+                {
+                    "node": name,
+                    "label": _TIMING_LABELS.get(name, name),
+                    "samples": metric.samples,
+                    "average_ms": metric.average_ms,
+                    "p95_ms": metric.p95_ms,
+                    "max_ms": metric.max_ms,
+                }
+            )
+
+
+def _timing_table(summary: BatchTimingSummary) -> str:
+    rows = []
+    for name, metric in _timing_rows(summary):
+        rows.append(
+            "<tr>"
+            f"<td>{escape(_TIMING_LABELS.get(name, name))}</td>"
+            f"<td>{metric.samples}</td>"
+            f"<td>{metric.average_ms:g}</td>"
+            f"<td>{metric.p95_ms:g}</td>"
+            f"<td>{metric.max_ms:g}</td>"
+            "</tr>"
+        )
+    if not rows:
+        return '<tr><td colspan="5">暂无可汇总的成功 Job 时间数据</td></tr>'
+    return "\n".join(rows)
+
+
 def _build_html(
     *,
     manifest: dict[str, object],
     plan: dict[str, object],
     frequency_rows: str,
     jobs_csv_name: str,
+    timing_csv_name: str,
+    timing_summary: BatchTimingSummary,
 ) -> str:
     batch_id = escape(str(manifest.get("batch_id") or ""))
     state = escape(str(manifest.get("state") or "unknown").upper())
@@ -264,6 +336,8 @@ def _build_html(
             return f"{float(plan.get(key)) / divisor:g}"
         except (TypeError, ValueError):
             return "—"
+
+    timing_rows = _timing_table(timing_summary)
 
     return f'''<!doctype html>
 <html lang="zh-CN">
@@ -294,7 +368,17 @@ a{{color:#175cd3;text-decoration:none}}
 <div class="kpi"><div class="value">{recovery_count}</div><div>自动恢复事件</div></div>
 <p>频率：{plan_value('start_hz', 1e6)}–{plan_value('stop_hz', 1e6)} MHz，步长 {plan_value('step_hz', 1e6)} MHz，Span {plan_value('span_hz', 1e6)} MHz，每频点 {escape(str(plan.get('captures_per_frequency') or '—'))} 次。</p>
 <p>正式配对样本：FSW EXT + FSW IMM + DSO-X DELAY 波形 + DSO-X CYCLE_COUNT 波形。</p>
-<p><a href="{escape(jobs_csv_name)}">下载完整 Job 明细 CSV</a></p>
+<p><a href="{escape(jobs_csv_name)}">完整 Job 明细 CSV</a> · <a href="{escape(timing_csv_name)}">节点耗时 CSV</a></p>
+</div>
+<div class="card">
+<h2>节点耗时统计</h2>
+<p>仅统计成功 Job，失败 / 超时任务保留在 Job 明细中，不参与正常性能分布。</p>
+<table>
+<thead><tr><th>节点</th><th>样本数</th><th>平均 (ms)</th><th>P95 (ms)</th><th>最大 (ms)</th></tr></thead>
+<tbody>
+{timing_rows}
+</tbody>
+</table>
 </div>
 <div class="card">
 <h2>频点结果</h2>

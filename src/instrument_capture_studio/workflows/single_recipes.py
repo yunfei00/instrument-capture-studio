@@ -65,7 +65,7 @@ class _RecipeWorkflowBase(CaptureWorkflow):
             cancel_check=self._cancel_check,
         ).run(job_id)
         result.metadata["recipe"] = self.recipe
-        result.metadata["schema_version"] = self._context.schema_version
+        result.metadata["schema_version"] = 1
         result.metadata["capture_complete"] = self._context.capture_complete
         result.metadata["result_saved"] = bool(
             self._context.metadata.get("result_saved", False)
@@ -152,7 +152,7 @@ class ImmSpectrumOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def _acquire(self, execution: StepExecutionContext) -> None:
-        self._context.spectrum = (
+        self._context.spectrum_imm = (
             self._spectrum_analyzer.acquire_spectrum_with_trigger(
                 "IMM",
                 timeout_s=execution.remaining_s,
@@ -184,7 +184,8 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
     @property
     def steps(self) -> tuple[CaptureStepDefinition, ...]:
         return (
-            CaptureStepDefinition("dsox_waveform"),
+            CaptureStepDefinition("dsox_delay_group"),
+            CaptureStepDefinition("dsox_cycle_group"),
             CaptureStepDefinition("save_result"),
         )
 
@@ -192,9 +193,26 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         return self._run_steps(
             job_id,
             self.steps,
-            {"dsox_waveform": self._acquire, "save_result": self._save},
+            {
+                "dsox_delay_group": self._acquire_delay_group,
+                "dsox_cycle_group": self._acquire_cycle_group,
+                "save_result": self._save,
+            },
         )
 
-    def _acquire(self, execution: StepExecutionContext) -> None:
-        self._context.waveform = self._oscilloscope.acquire_waveform()
-        self._context.metadata["waveform_channel"] = self._context.waveform.channel
+    def _acquire_delay_group(self, execution: StepExecutionContext) -> None:
+        delay, waveform = self._oscilloscope.acquire_delay_group()
+        self._context.delay = delay
+        self._context.waveform_delay = waveform
+        self._context.metadata["waveform_channel"] = waveform.channel
+        self._context.metadata["delay_timebase_scale_s"] = waveform.metadata.get(
+            "timebase_scale_s"
+        )
+
+    def _acquire_cycle_group(self, execution: StepExecutionContext) -> None:
+        cycle_count, waveform = self._oscilloscope.acquire_cycle_group()
+        self._context.cycle_count = cycle_count
+        self._context.waveform_cycle = waveform
+        self._context.metadata["cycle_timebase_scale_s"] = waveform.metadata.get(
+            "timebase_scale_s"
+        )

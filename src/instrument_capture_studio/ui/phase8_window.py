@@ -1,11 +1,22 @@
-"""Phase 8 UI: separate capture recipe from repetition/execution mode."""
+"""Phase 8 UI: real capture recipes plus pause/resume Batch controls."""
 
 from dataclasses import replace
+from pathlib import Path
 
-from PySide6.QtWidgets import QComboBox, QFormLayout, QGridLayout, QLabel
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+)
 
 from instrument_capture_studio.app.capture_recipe import CaptureRecipe, ExecutionMode
 from instrument_capture_studio.app.frequency_sweep import FrequencySweepPlan
+from instrument_capture_studio.app.resume import (
+    ResumableBatch,
+    find_latest_resumable_batch,
+)
 from instrument_capture_studio.ui.final_window import MainWindow as FinalWindow
 
 
@@ -20,9 +31,12 @@ class MainWindow(FinalWindow):
     """Release-candidate window aligned to the real acquisition recipes."""
 
     def __init__(self) -> None:
+        self._batch_is_paused = False
+        self._resumable_batch: ResumableBatch | None = None
         super().__init__()
         self._install_dsox_group_controls()
         self._install_recipe_controls()
+        self._install_resume_controls()
         # New controls are installed after parent preference restoration, so
         # restore once more to apply their persisted values.
         self._preferences.restore(self)
@@ -36,9 +50,12 @@ class MainWindow(FinalWindow):
         ):
             edit.editingFinished.connect(self._save_preferences)
             edit.textChanged.connect(self._update_recipe_summary)
+        self.output_root_edit.editingFinished.connect(self._refresh_resumable_batch)
+        self._controller.batch_pause_changed.connect(self._on_batch_pause_changed)
         self._sync_recipe_controls()
         self._update_recipe_summary()
-        self.statusBar().showMessage("就绪 · Phase 8A · Recipe RC")
+        self._refresh_resumable_batch()
+        self.statusBar().showMessage("就绪 · Phase 8B · Pause/Resume RC")
 
     def _install_dsox_group_controls(self) -> None:
         params = self.waveform_channel_spin.parentWidget()
@@ -71,6 +88,30 @@ class MainWindow(FinalWindow):
         layout.addWidget(self.recipe_combo, 7, 1, 1, 2)
         layout.addWidget(self.recipe_summary_label, 7, 3, 1, 3)
 
+    def _install_resume_controls(self) -> None:
+        group = self.start_button.parentWidget()
+        layout = group.layout()
+        if not isinstance(layout, QGridLayout):
+            raise RuntimeError("capture group must use QGridLayout")
+
+        self.pause_button = QPushButton("暂停采集", group)
+        self.pause_button.setObjectName("pauseCaptureButton")
+        self.pause_button.setEnabled(False)
+        self.resume_previous_button = QPushButton("继续上次任务", group)
+        self.resume_previous_button.setObjectName("resumePreviousBatchButton")
+        self.resume_previous_button.setEnabled(False)
+        self.resume_summary_label = QLabel("暂无可继续的未完成 Batch", group)
+        self.resume_summary_label.setObjectName("alphaNote")
+        self.resume_summary_label.setWordWrap(True)
+
+        layout.addWidget(QLabel("批量任务"), 8, 0)
+        layout.addWidget(self.pause_button, 8, 1)
+        layout.addWidget(self.resume_previous_button, 8, 2)
+        layout.addWidget(self.resume_summary_label, 8, 3, 1, 3)
+
+        self.pause_button.clicked.connect(self._toggle_pause)
+        self.resume_previous_button.clicked.connect(self._resume_previous_batch)
+
     def _selected_recipe(self) -> CaptureRecipe:
         return _RECIPE_TEXT[self.recipe_combo.currentText()]
 
@@ -86,9 +127,6 @@ class MainWindow(FinalWindow):
         recipe = self._selected_recipe()
         paired = recipe is CaptureRecipe.EXT_IMM_PAIR
 
-        # Current Phase 8A exposes batch execution for the paired training
-        # recipe first. Single-instrument batch modes will share the resumable
-        # engine introduced in Phase 8B rather than creating a second engine.
         if not paired and self.capture_mode_combo.currentIndex() != 0:
             self.capture_mode_combo.setCurrentIndex(0)
         self.capture_mode_combo.setEnabled(paired and not self._capture_busy)
@@ -113,8 +151,6 @@ class MainWindow(FinalWindow):
         ):
             widget.setEnabled(requires_fsw and not self._capture_busy)
 
-        # Trigger is controlled by recipe: pair uses EXT then IMM; IMM-only
-        # always uses IMM. Keep the legacy control visible but non-editable.
         self.trigger_source_combo.setEnabled(False)
         self.trigger_source_combo.setToolTip(
             "Phase 8 Recipe 自动控制 Trigger：配对样本 EXT→IMM；频谱单采固定 IMM。"
@@ -136,6 +172,7 @@ class MainWindow(FinalWindow):
 
         self._sync_sweep_mode()
         self._update_recipe_summary()
+        self._update_pause_controls()
 
     def _sync_sweep_mode(self, *_args) -> None:
         super()._sync_sweep_mode(*_args)
@@ -151,6 +188,8 @@ class MainWindow(FinalWindow):
                 self.repeat_capture_count_spin,
             ):
                 widget.setEnabled(False)
+        if hasattr(self, "pause_button"):
+            self._update_pause_controls()
 
     def _build_dsox_settings(self):
         settings = super()._build_dsox_settings()
@@ -198,9 +237,16 @@ class MainWindow(FinalWindow):
             )
 
     def _start_capture(self) -> None:
+        self._start_recipe_request(resume_batch=None)
+
+    def _start_recipe_request(self, resume_batch: ResumableBatch | None) -> None:
         self._save_preferences()
         recipe = self._selected_recipe()
         execution = self._selected_execution_mode()
+
+        if resume_batch is not None:
+            recipe = CaptureRecipe.EXT_IMM_PAIR
+            execution = self._execution_for_resume(resume_batch)
 
         try:
             fsw_settings = None
@@ -210,8 +256,8 @@ class MainWindow(FinalWindow):
             if recipe in {CaptureRecipe.EXT_IMM_PAIR, CaptureRecipe.DSOX_ONLY}:
                 dsox_settings = self._build_dsox_settings()
 
-            plan = None
-            if recipe is CaptureRecipe.EXT_IMM_PAIR:
+            plan = resume_batch.plan if resume_batch is not None else None
+            if recipe is CaptureRecipe.EXT_IMM_PAIR and plan is None:
                 if execution is ExecutionMode.FREQUENCY_SWEEP:
                     plan = self._build_sweep_plan()
                 elif execution is ExecutionMode.FIXED_REPEAT:
@@ -224,7 +270,7 @@ class MainWindow(FinalWindow):
                         span_hz=span_hz,
                         captures_per_frequency=self.repeat_capture_count_spin.value(),
                     )
-            elif execution is not ExecutionMode.SINGLE:
+            elif recipe is not CaptureRecipe.EXT_IMM_PAIR and execution is not ExecutionMode.SINGLE:
                 raise ValueError("IMM频谱单采和示波器单采当前请选择单次采集")
         except ValueError as exc:
             self._show_input_error(str(exc))
@@ -243,11 +289,29 @@ class MainWindow(FinalWindow):
             recipe is CaptureRecipe.EXT_IMM_PAIR
             and execution is not ExecutionMode.SINGLE
         )
+        self._batch_is_paused = False
         self._set_capture_busy(True)
-        self.job_state_label.setText("RECIPE STARTING")
+        self.job_state_label.setText(
+            "BATCH RESUMING" if resume_batch is not None else "RECIPE STARTING"
+        )
         self.progress_bar.setRange(0, 100)
-        self.progress_bar.setValue(0)
-        self.progress_bar.setFormat("正在启动采集 Recipe…")
+        if resume_batch is None:
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("正在启动采集 Recipe…")
+        else:
+            percent = int(
+                round(
+                    resume_batch.completed_captures
+                    * 100
+                    / max(1, resume_batch.total_captures)
+                )
+            )
+            self.progress_bar.setValue(percent)
+            self.progress_bar.setFormat(
+                f"继续任务 · {resume_batch.completed_captures}/"
+                f"{resume_batch.total_captures}"
+            )
+
         self._controller.start_recipe(
             {
                 "recipe": recipe.value,
@@ -256,17 +320,157 @@ class MainWindow(FinalWindow):
                 "dsox_settings": dsox_settings,
                 "output_root": output_root,
                 "plan": plan,
+                "resume_manifest_path": (
+                    str(resume_batch.manifest_path)
+                    if resume_batch is not None
+                    else None
+                ),
             }
         )
+        action = "继续" if resume_batch is not None else "开始"
         self._append_log(
-            f"Phase 8 Recipe：{recipe.value} · {execution.value} · "
+            f"{action} Phase 8 Recipe：{recipe.value} · {execution.value} · "
             f"CH{self.waveform_channel_spin.value()} · "
             f"DELAY timebase={self.delay_timebase_scale_edit.text()} · "
             f"CYCLE timebase={self.cycle_timebase_scale_edit.text()}"
         )
+
+    @staticmethod
+    def _execution_for_resume(batch: ResumableBatch) -> ExecutionMode:
+        if batch.plan.frequency_count == 1 and batch.plan.captures_per_frequency > 1:
+            return ExecutionMode.FIXED_REPEAT
+        return ExecutionMode.FREQUENCY_SWEEP
+
+    def _apply_resume_plan_to_controls(self, batch: ResumableBatch) -> None:
+        plan = batch.plan
+        self.recipe_combo.setCurrentText("EXT联合 + IMM配对样本")
+        execution = self._execution_for_resume(batch)
+        if execution is ExecutionMode.FIXED_REPEAT:
+            self.capture_mode_combo.setCurrentIndex(2)
+            self.center_hz_edit.setText(f"{plan.start_hz:g}")
+            self.span_hz_edit.setText(f"{plan.span_hz:g}")
+            self.repeat_capture_count_spin.setValue(plan.captures_per_frequency)
+        else:
+            self.capture_mode_combo.setCurrentIndex(1)
+            self.sweep_start_mhz_edit.setText(f"{plan.start_hz / 1e6:g}")
+            self.sweep_stop_mhz_edit.setText(f"{plan.stop_hz / 1e6:g}")
+            self.sweep_step_mhz_edit.setText(f"{plan.step_hz / 1e6:g}")
+            self.sweep_span_mhz_edit.setText(f"{plan.span_hz / 1e6:g}")
+            self.sweep_capture_count_spin.setValue(plan.captures_per_frequency)
+        self._update_sweep_summary()
+        self._update_recipe_summary()
+
+    def _refresh_resumable_batch(self, *_args) -> None:
+        if not hasattr(self, "resume_previous_button"):
+            return
+        root_text = self.output_root_edit.text().strip()
+        batch = None
+        if root_text:
+            try:
+                batch = find_latest_resumable_batch(Path(root_text))
+            except OSError:
+                batch = None
+        self._resumable_batch = batch
+
+        if batch is None:
+            self.resume_summary_label.setText("暂无可继续的未完成 Batch")
+        else:
+            self.resume_summary_label.setText(
+                f"{batch.batch_id} · {batch.state.upper()} · "
+                f"已完成 {batch.completed_captures}/{batch.total_captures} · "
+                f"剩余 {batch.remaining_captures}"
+            )
+        self.resume_previous_button.setEnabled(
+            batch is not None and not self._capture_busy
+        )
+
+    def _resume_previous_batch(self) -> None:
+        batch = self._resumable_batch
+        if batch is None or self._capture_busy:
+            self._refresh_resumable_batch()
+            return
+        self._apply_resume_plan_to_controls(batch)
+        self._start_recipe_request(resume_batch=batch)
+
+    def _toggle_pause(self) -> None:
+        if not self._capture_busy or not self._sweep_running:
+            return
+        if self._batch_is_paused:
+            self.job_state_label.setText("RESUMING")
+            self.pause_button.setText("正在继续…")
+            self.pause_button.setEnabled(False)
+            self._controller.resume_capture()
+            return
+
+        self.job_state_label.setText("PAUSE REQUESTED")
+        self.pause_button.setText("等待样本完成…")
+        self.pause_button.setEnabled(False)
+        self.statusBar().showMessage("已请求暂停；当前完整逻辑样本结束后暂停。")
+        self._controller.pause_capture()
+
+    def _on_batch_pause_changed(
+        self,
+        paused: bool,
+        batch_id: str,
+        completed: int,
+        total: int,
+    ) -> None:
+        self._batch_is_paused = paused
+        if paused:
+            self.job_state_label.setText("PAUSED")
+            self.pause_button.setText("继续采集")
+            self.progress_bar.setFormat(f"PAUSED · {completed}/{total}")
+            self.statusBar().showMessage(
+                f"Batch 已暂停 · {batch_id} · {completed}/{total}"
+            )
+            self._append_log(
+                f"Batch 已在完整逻辑样本边界暂停：{completed}/{total}"
+            )
+        else:
+            self.job_state_label.setText("BATCH RUNNING")
+            self.pause_button.setText("暂停采集")
+            self.statusBar().showMessage(
+                f"Batch 已继续 · {batch_id} · {completed}/{total}"
+            )
+            self._append_log(
+                f"Batch 继续采集：从 {completed + 1}/{total} 开始"
+            )
+        self._update_pause_controls()
+
+    def _update_pause_controls(self) -> None:
+        if not hasattr(self, "pause_button"):
+            return
+        batch_mode = False
+        if hasattr(self, "recipe_combo"):
+            batch_mode = (
+                self._selected_recipe() is CaptureRecipe.EXT_IMM_PAIR
+                and self._selected_execution_mode() is not ExecutionMode.SINGLE
+            )
+        self.pause_button.setEnabled(self._capture_busy and batch_mode)
+        if not self._capture_busy:
+            self._batch_is_paused = False
+            self.pause_button.setText("暂停采集")
+        if hasattr(self, "resume_previous_button"):
+            self.resume_previous_button.setEnabled(
+                self._resumable_batch is not None and not self._capture_busy
+            )
+
+    def _choose_output_root(self) -> None:
+        super()._choose_output_root()
+        self._refresh_resumable_batch()
+
+    def _on_batch_finished(self, result) -> None:
+        self._batch_is_paused = False
+        super()._on_batch_finished(result)
+        self.pause_button.setText("暂停采集")
+        self._refresh_resumable_batch()
 
     def _set_capture_busy(self, busy: bool) -> None:
         super()._set_capture_busy(busy)
         if hasattr(self, "recipe_combo"):
             self.recipe_combo.setEnabled(not busy)
             self._sync_recipe_controls()
+        if hasattr(self, "pause_button"):
+            self._update_pause_controls()
+        if hasattr(self, "resume_previous_button") and not busy:
+            self._refresh_resumable_batch()

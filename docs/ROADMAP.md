@@ -171,12 +171,14 @@ Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格�
 
 状态：**IN PROGRESS**
 
-软件侧已开始 Release Hardening：
+软件侧 Release Hardening：
 
 - 采集中关闭 GUI 时不再强制销毁 VISA Worker Thread。
 - 关闭请求转换为协作式停止，等待当前仪表操作安全结束并释放会话后自动退出。
 - 连接测试尚未结束时关闭 GUI，同样等待测试完成后再退出。
 - 不使用 `QThread.terminate()` 等强制线程终止方式。
+- Release Window 继续继承 Phase 8B 的冻结参数与断点续采能力，不回退已验收功能。
+- Windows CI smoke test 已切换到真实 `release_window`，同时验证安全关闭状态字段和 Phase 8A/8B 控件仍存在。
 
 剩余真机验收：FSW / DSO-X 物理断线恢复、最大重试失败、Trigger Timeout 不误重连，以及采集中关闭 GUI 的完整安全退出与恢复。
 

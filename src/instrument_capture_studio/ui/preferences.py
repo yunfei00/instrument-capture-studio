@@ -29,6 +29,7 @@ class WindowPreferences:
         "dsox/delay_edge1": "delay_edge1_combo",
         "dsox/delay_edge2": "delay_edge2_combo",
         "capture/mode": "capture_mode_combo",
+        "capture/recipe": "recipe_combo",
     }
 
     _SPINS = {
@@ -45,19 +46,15 @@ class WindowPreferences:
 
     def snapshot(self, window) -> dict[str, object]:
         values: dict[str, object] = {}
-
         for key, attribute in self._LINE_EDITS.items():
             if hasattr(window, attribute):
                 values[key] = getattr(window, attribute).text()
-
         for key, attribute in self._COMBOS.items():
             if hasattr(window, attribute):
                 values[key] = getattr(window, attribute).currentText()
-
         for key, attribute in self._SPINS.items():
             if hasattr(window, attribute):
                 values[key] = getattr(window, attribute).value()
-
         return values
 
     def apply(self, window, values: dict[str, object]) -> None:
@@ -65,7 +62,6 @@ class WindowPreferences:
             if key not in values or not hasattr(window, attribute):
                 continue
             getattr(window, attribute).setText(str(values[key]))
-
         for key, attribute in self._COMBOS.items():
             if key not in values or not hasattr(window, attribute):
                 continue
@@ -74,7 +70,6 @@ class WindowPreferences:
             index = widget.findText(value)
             if index >= 0:
                 widget.setCurrentIndex(index)
-
         for key, attribute in self._SPINS.items():
             if key not in values or not hasattr(window, attribute):
                 continue

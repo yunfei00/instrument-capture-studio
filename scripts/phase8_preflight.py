@@ -63,7 +63,7 @@ def _self_check() -> bool:
             create_application,
             create_main_window,
         )
-        from instrument_capture_studio.ui.final_window import MainWindow  # noqa: F401
+        from instrument_capture_studio.ui.phase8_window import MainWindow  # noqa: F401
     except Exception as exc:
         print(f"FAIL: runtime import error: {type(exc).__name__}: {exc}")
         return False
@@ -76,12 +76,7 @@ def _self_check() -> bool:
 
 
 def _candidate_search_roots(data_root: Path) -> tuple[Path, ...]:
-    """Return safe nearby roots for the common capture-directory layouts.
-
-    A user often points the tool at ``<root>/YYYY-MM-DD`` because that is where
-    the Job directories are visible. Batch manifests are deliberately stored in
-    the sibling ``<root>/batches/...`` tree, so include the parent automatically.
-    """
+    """Return safe nearby roots for the common capture-directory layouts."""
 
     root = data_root.expanduser().resolve()
     candidates: list[Path] = [root]
@@ -129,9 +124,6 @@ def _find_batches(data_root: Path) -> tuple[Path, ...]:
                 if path.is_file():
                     found[path.resolve()] = path.stat().st_mtime
 
-        # Also support copied/reorganized acceptance data. The official layout
-        # is preferred above, but recursive discovery makes the tool useful when
-        # a Batch directory was copied by itself to another location.
         for path in search_root.rglob("batch.json"):
             if path.is_file():
                 found[path.resolve()] = path.stat().st_mtime
@@ -189,17 +181,17 @@ def _validate_batch(path: Path) -> bool:
         print(f"WARN: {warning}")
 
     if report.missing_files:
-        print(f"Missing standard files: {len(report.missing_files)}")
+        print(f"Missing formal Recipe artifacts: {len(report.missing_files)}")
         for item in report.missing_files[:20]:
             print(f"  - {item}")
         if len(report.missing_files) > 20:
             print(f"  ... and {len(report.missing_files) - 20} more")
 
     if report.passed:
-        print("PASS: Batch artifact acceptance")
+        print("PASS: Batch Recipe artifact acceptance")
         return True
 
-    print("FAIL: Batch artifact acceptance")
+    print("FAIL: Batch Recipe artifact acceptance")
     return False
 
 
@@ -219,16 +211,15 @@ def main(argv: list[str] | None = None) -> int:
             if job_count:
                 print(f"INFO: found {job_count} job.json file(s) under the supplied path")
                 print(
-                    "INFO: this looks like a Job/date directory. "
-                    "For Batch acceptance you can pass the same YYYY-MM-DD directory after "
-                    "updating this script; it will also inspect the sibling batches directory."
+                    "INFO: this looks like a Job/date directory; Batch manifests are "
+                    "normally stored under the sibling batches directory."
                 )
                 print(
                     "INFO: if the acquisition mode was '单次采集', no batch.json is expected. "
-                    "Use a frequency-sweep/fixed-frequency-continuous Batch for Phase 8 H."
+                    "Use a frequency-sweep/fixed-frequency Batch for Batch acceptance."
                 )
             else:
-                print("INFO: no job.json was found either; check that --data-root points at saved capture data")
+                print("INFO: no job.json was found either; check --data-root")
             ok = False
 
     if batch_path is not None:

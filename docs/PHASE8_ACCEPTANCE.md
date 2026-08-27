@@ -147,6 +147,8 @@ Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight �
 - 关闭请求转换为协作式停止，当前仪表操作安全结束并释放会话后自动退出。
 - 连接测试未完成时关闭 GUI，也等待测试结束后再退出。
 - 不使用 `QThread.terminate()` 等强制终止方式。
+- Release Window 继承 Phase 8B Window，保证冻结参数、暂停/继续和断点续采能力不回退。
+- CI Product GUI smoke test 直接实例化 Release Window，并检查安全关闭初始状态和前序 RC 控件。
 
 真机必须完成：
 

@@ -48,25 +48,34 @@ class FakeDSOX:
     def __init__(self, calls):
         self.calls = calls
 
-    def acquire_delay(self):
-        self.calls.append(("dsox", "delay"))
-        return MeasurementResult("DELAY", 1e-6, "s")
+    def acquire_delay_group(self):
+        self.calls.append(("dsox", "delay_group"))
+        return (
+            MeasurementResult("DELAY", 1e-6, "s"),
+            WaveformResult(
+                channel="CH1",
+                time_s=[0.0, 1e-9],
+                voltage_v=[0.0, 1.0],
+                sample_rate_hz=1e9,
+                metadata={"sample_kind": "delay"},
+            ),
+        )
 
-    def acquire_cycle_count(self):
-        self.calls.append(("dsox", "cycle"))
-        return MeasurementResult("CYCLE_COUNT", 2.0, "count")
-
-    def acquire_waveform(self):
-        self.calls.append(("dsox", "waveform"))
-        return WaveformResult(
-            channel="CH1",
-            time_s=[0.0, 1e-9],
-            voltage_v=[0.0, 1.0],
-            sample_rate_hz=1e9,
+    def acquire_cycle_group(self):
+        self.calls.append(("dsox", "cycle_group"))
+        return (
+            MeasurementResult("CYCLE_COUNT", 2.0, "count"),
+            WaveformResult(
+                channel="CH1",
+                time_s=[0.0, 1e-6],
+                voltage_v=[0.0, 0.5],
+                sample_rate_hz=1e6,
+                metadata={"sample_kind": "cycle_count"},
+            ),
         )
 
 
-def test_ext_is_armed_before_dsox_acquisition_and_imm_is_last():
+def test_ext_is_armed_before_first_dsox_group_and_imm_is_last():
     calls = []
     sample = acquire_ext_imm_paired_sample(
         FakeFSW(calls),
@@ -76,12 +85,12 @@ def test_ext_is_armed_before_dsox_acquisition_and_imm_is_last():
 
     assert calls == [
         ("fsw", "arm", "EXT"),
-        ("dsox", "waveform"),
-        ("dsox", "delay"),
-        ("dsox", "cycle"),
+        ("dsox", "delay_group"),
         ("fsw", "read_ext", "EXT", 5.0),
+        ("dsox", "cycle_group"),
         ("fsw", "acquire", "IMM", 5.0),
     ]
     assert sample.spectrum_ext.metadata["trigger_source"] == "EXT"
     assert sample.spectrum_imm.metadata["trigger_source"] == "IMM"
-    assert sample.waveform.channel == "CH1"
+    assert sample.waveform_delay.metadata["sample_kind"] == "delay"
+    assert sample.waveform_cycle.metadata["sample_kind"] == "cycle_count"

@@ -5,7 +5,7 @@ import sys
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
-from instrument_capture_studio.ui.final_window import MainWindow
+from instrument_capture_studio.ui.phase8_window import MainWindow
 
 
 _RELEASE_LABEL = "v0.9 · RC1"
@@ -13,10 +13,8 @@ _RELEASE_LABEL = "v0.9 · RC1"
 
 def create_application(argv: list[str] | None = None) -> QApplication:
     """Create the Qt application with stable product metadata."""
-
     QCoreApplication.setOrganizationName("Instrument Capture Studio")
     QCoreApplication.setApplicationName("Instrument Capture Studio")
-
     app = QApplication(argv if argv is not None else sys.argv)
     app.setApplicationDisplayName("Instrument Capture Studio")
     app.setStyle("Fusion")
@@ -26,13 +24,12 @@ def create_application(argv: list[str] | None = None) -> QApplication:
 
 def create_main_window() -> MainWindow:
     """Create the real release-candidate window and apply release branding."""
-
     window = MainWindow()
     badge = window.findChild(QLabel, "alphaBadge")
     if badge is not None:
         badge.setText(_RELEASE_LABEL)
         badge.setMinimumWidth(130)
-    window.statusBar().showMessage("就绪 · v0.9 RC1 · Phase 8")
+    window.statusBar().showMessage("就绪 · v0.9 RC1 · Phase 8A")
     return window
 
 

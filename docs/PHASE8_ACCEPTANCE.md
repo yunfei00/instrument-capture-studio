@@ -42,6 +42,11 @@
 
 状态：PENDING
 
+软件回归覆盖：
+
+- Batch 在两个 Job 之间收到取消：状态 CANCELED、Manifest 持久化、双仪表会话释放。
+- 当前 Job 返回 CANCELED：Batch 同步结束为 CANCELED，并释放双仪表会话。
+
 ## C. 强制补验：FSW 物理断线恢复
 
 步骤：
@@ -128,7 +133,9 @@ PASS: Batch artifact acceptance
 - 成功 Job 数量与完成数量一致
 - 每个成功 Job 都存在：job.json、metadata.json、spectrum.csv、spectrum.npz、waveform.csv、waveform.npz
 
-状态：PENDING（工具已提供，等待在真实 2100 次数据目录执行）
+状态：PASS
+
+2026-08-27：在真实采集数据目录运行 Phase 8 preflight，Batch 定位与标准文件完整性检查通过。脚本同时已增强为可接受数据根目录、日期目录、Batch 目录或直接 `batch.json`。
 
 ## I. Windows Release Candidate
 

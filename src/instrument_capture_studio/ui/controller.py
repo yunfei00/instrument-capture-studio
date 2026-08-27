@@ -1,7 +1,7 @@
 """Qt background controller for instrument operations.
 
-All VISA/driver work is executed on one worker thread. Cancellation uses a
-threading.Event so a running FSW bounded poll can observe it immediately even
+All VISA/driver work is executed on one worker thread. Cancellation and pause
+use threading.Event objects so the GUI thread can affect a running Batch even
 while the worker thread is busy inside the capture workflow.
 """
 
@@ -24,6 +24,7 @@ from instrument_capture_studio.app.recovery import (
     recovery_reason_from_exception,
     recovery_reason_from_result,
 )
+from instrument_capture_studio.app.resume import load_resumable_batch
 from instrument_capture_studio.app.runtime import (
     DSOXRuntimeSettings,
     FSWRuntimeSettings,
@@ -48,11 +49,13 @@ class HardwareWorker(QObject):
     capture_failed = Signal(str, str)
     batch_started = Signal(str, int)
     batch_progress = Signal(object)
+    batch_pause_changed = Signal(bool, str, int, int)
     batch_finished = Signal(object)
 
-    def __init__(self, cancel_event: Event) -> None:
+    def __init__(self, cancel_event: Event, pause_event: Event) -> None:
         super().__init__()
         self._cancel_event = cancel_event
+        self._pause_event = pause_event
         self._recovery_policy = RecoveryPolicy()
 
     @Slot(object)
@@ -137,11 +140,12 @@ class HardwareWorker(QObject):
         dsox_settings: DSOXRuntimeSettings,
         output_root: str,
     ) -> None:
-        """Legacy schema-v1 combined capture path."""
+        """Legacy internal combined capture path."""
         self._run_legacy_single(fsw_settings, dsox_settings, output_root)
 
     def _run_legacy_single(self, fsw_settings, dsox_settings, output_root) -> None:
         self._cancel_event.clear()
+        self._pause_event.clear()
         base_job_id = f"capture-{uuid4().hex[:12]}"
         output_path = Path(output_root).expanduser().resolve()
         attempt = 1
@@ -199,20 +203,22 @@ class HardwareWorker(QObject):
 
     @Slot(object)
     def run_recipe(self, request: dict) -> None:
-        """Dispatch the Phase 8 recipe independently from repetition mode."""
+        """Dispatch Phase 8 capture content independently from repetition mode."""
         self._cancel_event.clear()
+        self._pause_event.clear()
         recipe = CaptureRecipe(request["recipe"])
         execution = ExecutionMode(request["execution_mode"])
         output_root = str(request["output_root"])
         fsw_settings = request.get("fsw_settings")
         dsox_settings = request.get("dsox_settings")
         plan = request.get("plan")
+        resume_manifest_path = request.get("resume_manifest_path")
 
         if execution is not ExecutionMode.SINGLE:
             if recipe is not CaptureRecipe.EXT_IMM_PAIR:
                 self.capture_failed.emit(
                     "UnsupportedRecipeMode",
-                    "当前版本 IMM 单采和示波器单采先支持单次模式；批量模式将在断点续采引擎中统一接入。",
+                    "当前版本 IMM 单采和示波器单采先支持单次模式。",
                 )
                 return
             self._run_paired_batch(
@@ -220,6 +226,7 @@ class HardwareWorker(QObject):
                 dsox_settings,
                 output_root,
                 plan,
+                resume_manifest_path=resume_manifest_path,
             )
             return
 
@@ -321,12 +328,33 @@ class HardwareWorker(QObject):
         fsw_settings,
         dsox_settings,
         output_root: str,
-        plan: FrequencySweepPlan,
+        plan: FrequencySweepPlan | None,
+        *,
+        resume_manifest_path: str | Path | None = None,
     ) -> None:
-        if plan is None:
-            self.capture_failed.emit("ValueError", "paired batch requires a plan")
-            return
-        batch_id = f"batch-{uuid4().hex[:12]}"
+        resume_path = (
+            Path(resume_manifest_path).expanduser().resolve()
+            if resume_manifest_path
+            else None
+        )
+        if resume_path is not None:
+            try:
+                resumable = load_resumable_batch(resume_path)
+            except Exception as exc:
+                self.capture_failed.emit(type(exc).__name__, str(exc))
+                return
+            batch_id = resumable.batch_id
+            plan = resumable.plan
+            self.log.emit(
+                f"准备继续 Batch：{batch_id} · "
+                f"{resumable.completed_captures}/{resumable.total_captures} 已完成"
+            )
+        else:
+            if plan is None:
+                self.capture_failed.emit("ValueError", "paired batch requires a plan")
+                return
+            batch_id = f"batch-{uuid4().hex[:12]}"
+
         self.batch_started.emit(batch_id, plan.total_captures)
         self.log.emit(
             "开始 EXT+IMM 配对 Batch："
@@ -340,6 +368,14 @@ class HardwareWorker(QObject):
                 next_attempt, max_attempts, error_type, message
             )
 
+        def report_pause(paused, current_batch_id, completed, total):
+            self.batch_pause_changed.emit(
+                paused,
+                current_batch_id,
+                completed,
+                total,
+            )
+
         try:
             result = run_frequency_sweep_batch(
                 fsw_factory=lambda: build_fsw_adapter(fsw_settings),
@@ -349,11 +385,14 @@ class HardwareWorker(QObject):
                 output_root=Path(output_root).expanduser().resolve(),
                 fsw_timeout_s=fsw_settings.step_timeout_s,
                 cancel_check=self._cancel_event.is_set,
+                pause_check=self._pause_event.is_set,
                 recovery_policy=self._recovery_policy,
                 progress_callback=self.batch_progress.emit,
                 recovery_callback=report_recovery,
+                pause_callback=report_pause,
                 log_callback=self.log.emit,
                 capture_runner=run_connected_paired_capture,
+                resume_manifest_path=resume_path,
             )
         except Exception as exc:
             self.capture_failed.emit(type(exc).__name__, str(exc))
@@ -373,8 +412,9 @@ class HardwareWorker(QObject):
         output_root: str,
         plan: FrequencySweepPlan,
     ) -> None:
-        """Legacy schema-v1 batch path."""
+        """Legacy internal batch path."""
         self._cancel_event.clear()
+        self._pause_event.clear()
         batch_id = f"batch-{uuid4().hex[:12]}"
         self.batch_started.emit(batch_id, plan.total_captures)
 
@@ -415,6 +455,7 @@ class HardwareController(QObject):
     capture_failed = Signal(str, str)
     batch_started = Signal(str, int)
     batch_progress = Signal(object)
+    batch_pause_changed = Signal(bool, str, int, int)
     batch_finished = Signal(object)
 
     _test_fsw_requested = Signal(object)
@@ -426,8 +467,9 @@ class HardwareController(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._cancel_event = Event()
+        self._pause_event = Event()
         self._thread = QThread(self)
-        self._worker = HardwareWorker(self._cancel_event)
+        self._worker = HardwareWorker(self._cancel_event, self._pause_event)
         self._worker.moveToThread(self._thread)
 
         self._test_fsw_requested.connect(self._worker.test_fsw)
@@ -446,6 +488,7 @@ class HardwareController(QObject):
         self._worker.capture_failed.connect(self.capture_failed)
         self._worker.batch_started.connect(self.batch_started)
         self._worker.batch_progress.connect(self.batch_progress)
+        self._worker.batch_pause_changed.connect(self.batch_pause_changed)
         self._worker.batch_finished.connect(self.batch_finished)
 
         self._thread.start()
@@ -478,11 +521,22 @@ class HardwareController(QObject):
     def start_recipe(self, request: dict) -> None:
         self._recipe_requested.emit(dict(request))
 
+    def pause_capture(self) -> None:
+        self._pause_event.set()
+        self.log.emit("已发送暂停请求；当前完整逻辑样本完成后进入 PAUSED。")
+
+    def resume_capture(self) -> None:
+        self._pause_event.clear()
+        self.log.emit("已发送继续请求；将从下一条未完成逻辑样本继续。")
+
     def cancel_capture(self) -> None:
         self._cancel_event.set()
+        # Wake a Batch that is currently waiting in PAUSED state.
+        self._pause_event.clear()
         self.log.emit("已发送停止请求，等待当前仪表操作安全结束。")
 
     def shutdown(self, wait_ms: int = 1500) -> None:
         self._cancel_event.set()
+        self._pause_event.clear()
         self._thread.quit()
         self._thread.wait(wait_ms)

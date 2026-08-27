@@ -191,24 +191,42 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def run(self, job_id: str) -> CaptureResult:
-        # A standalone oscilloscope acquisition must not inherit a stale NORM
-        # trigger condition from an earlier front-panel/paired session. Without
-        # a trigger, :DIGitize remains armed and the following waveform query
-        # ends in a VISA timeout. The real DSO-X adapter temporarily switches
-        # to AUTO and restores the original sweep after both physical captures.
-        trigger_scope = getattr(self._oscilloscope, "standalone_auto_trigger", None)
-        manager = trigger_scope() if callable(trigger_scope) else nullcontext("UNKNOWN")
-        with manager as original_sweep:
-            previous_original = self._initial_metadata.get(
+        # DSO-X-only must be deterministic and independent of whatever the
+        # front panel was doing before remote control started. The real adapter
+        # temporarily selects AUTO trigger sweep and NORMal acquisition, then
+        # restores both settings after the two physical captures.
+        capture_scope = getattr(self._oscilloscope, "standalone_auto_trigger", None)
+        manager = capture_scope() if callable(capture_scope) else nullcontext({})
+        with manager as capture_settings:
+            settings = (
+                dict(capture_settings)
+                if isinstance(capture_settings, dict)
+                else {
+                    "trigger_sweep_original": str(capture_settings),
+                    "trigger_sweep_used": "AUTO",
+                }
+            )
+            previous = {
+                key: self._initial_metadata.get(key)
+                for key in (
+                    "standalone_trigger_sweep_original",
+                    "standalone_trigger_sweep_used",
+                    "standalone_acquisition_type_original",
+                    "standalone_acquisition_type_used",
+                )
+            }
+            self._initial_metadata[
                 "standalone_trigger_sweep_original"
-            )
-            previous_used = self._initial_metadata.get(
+            ] = settings.get("trigger_sweep_original", "UNKNOWN")
+            self._initial_metadata[
                 "standalone_trigger_sweep_used"
-            )
-            self._initial_metadata["standalone_trigger_sweep_original"] = (
-                original_sweep
-            )
-            self._initial_metadata["standalone_trigger_sweep_used"] = "AUTO"
+            ] = settings.get("trigger_sweep_used", "AUTO")
+            self._initial_metadata[
+                "standalone_acquisition_type_original"
+            ] = settings.get("acquisition_type_original", "UNKNOWN")
+            self._initial_metadata[
+                "standalone_acquisition_type_used"
+            ] = settings.get("acquisition_type_used", "NORM")
             try:
                 return self._run_steps(
                     job_id,
@@ -220,22 +238,11 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
                     },
                 )
             finally:
-                if previous_original is None:
-                    self._initial_metadata.pop(
-                        "standalone_trigger_sweep_original", None
-                    )
-                else:
-                    self._initial_metadata[
-                        "standalone_trigger_sweep_original"
-                    ] = previous_original
-                if previous_used is None:
-                    self._initial_metadata.pop(
-                        "standalone_trigger_sweep_used", None
-                    )
-                else:
-                    self._initial_metadata[
-                        "standalone_trigger_sweep_used"
-                    ] = previous_used
+                for key, value in previous.items():
+                    if value is None:
+                        self._initial_metadata.pop(key, None)
+                    else:
+                        self._initial_metadata[key] = value
 
     def _acquire_delay_group(self, execution: StepExecutionContext) -> None:
         delay, waveform = self._oscilloscope.acquire_delay_group()

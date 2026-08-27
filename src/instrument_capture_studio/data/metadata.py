@@ -3,9 +3,34 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from instrument_capture_studio.workflows.context import (
-    CaptureContext,
-)
+from instrument_capture_studio.core.results import SpectrumResult
+from instrument_capture_studio.workflows.context import CaptureContext
+
+
+def _spectrum_summary(spectrum: SpectrumResult | None) -> dict[str, Any] | None:
+    if spectrum is None:
+        return None
+    return {
+        "points": spectrum.points,
+        "start_frequency_hz": (
+            spectrum.frequencies_hz[0] if spectrum.points else None
+        ),
+        "stop_frequency_hz": (
+            spectrum.frequencies_hz[-1] if spectrum.points else None
+        ),
+        "metadata": spectrum.metadata,
+    }
+
+
+def _measurement_summary(value):
+    if value is None:
+        return None
+    return {
+        "measurement": value.measurement,
+        "value": value.value,
+        "unit": value.unit,
+        "metadata": value.metadata,
+    }
 
 
 def build_capture_metadata(
@@ -14,63 +39,24 @@ def build_capture_metadata(
     *,
     captured_at: datetime | None = None,
 ) -> dict[str, Any]:
-    """把 CaptureContext 转换为可持久化的 Job 元数据。"""
+    """把 CaptureContext 转换为可持久化的 Job 元数据。
 
-    timestamp = (
-        captured_at
-        or datetime.now()
-    )
+    Schema v1 remains unchanged for legacy single-spectrum jobs. Schema v2 is
+    selected automatically when a paired EXT/IMM spectrum is present.
+    """
 
-    spectrum = context.spectrum
-    delay = context.delay
-    cycle_count = context.cycle_count
+    timestamp = captured_at or datetime.now()
     waveform = context.waveform
 
-    return {
-        "schema_version": 1,
+    metadata: dict[str, Any] = {
+        "schema_version": context.schema_version,
         "job_id": job_id,
         "captured_at": timestamp.isoformat(),
-        "capture_complete": context.is_complete,
+        "capture_complete": context.capture_complete,
         "measurements": {
-            "delay": (
-                None
-                if delay is None
-                else {
-                    "measurement": delay.measurement,
-                    "value": delay.value,
-                    "unit": delay.unit,
-                    "metadata": delay.metadata,
-                }
-            ),
-            "cycle_count": (
-                None
-                if cycle_count is None
-                else {
-                    "measurement": cycle_count.measurement,
-                    "value": cycle_count.value,
-                    "unit": cycle_count.unit,
-                    "metadata": cycle_count.metadata,
-                }
-            ),
+            "delay": _measurement_summary(context.delay),
+            "cycle_count": _measurement_summary(context.cycle_count),
         },
-        "spectrum": (
-            None
-            if spectrum is None
-            else {
-                "points": spectrum.points,
-                "start_frequency_hz": (
-                    spectrum.frequencies_hz[0]
-                    if spectrum.points
-                    else None
-                ),
-                "stop_frequency_hz": (
-                    spectrum.frequencies_hz[-1]
-                    if spectrum.points
-                    else None
-                ),
-                "metadata": spectrum.metadata,
-            }
-        ),
         "waveform": (
             None
             if waveform is None
@@ -84,41 +70,31 @@ def build_capture_metadata(
         "metadata": context.metadata,
     }
 
-
-def write_capture_metadata(
-    path: Path,
-    metadata: dict[str, Any],
-) -> None:
-    """将 Job 元数据写入 UTF-8 JSON 文件。"""
-
-    path = Path(path)
-
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    with path.open(
-        "w",
-        encoding="utf-8",
-    ) as file:
-        json.dump(
-            metadata,
-            file,
-            ensure_ascii=False,
-            indent=2,
+    if context.schema_version == 1:
+        metadata["spectrum"] = _spectrum_summary(context.spectrum)
+    else:
+        metadata["spectra"] = {
+            "ext": _spectrum_summary(context.spectrum_ext),
+            "imm": _spectrum_summary(context.spectrum_imm),
+        }
+        # Explicit recipe marker makes downstream dataset tooling unambiguous.
+        metadata["recipe"] = str(
+            context.metadata.get("recipe", "ext_imm_pair")
         )
 
+    return metadata
+
+
+def write_capture_metadata(path: Path, metadata: dict[str, Any]) -> None:
+    """将 Job 元数据写入 UTF-8 JSON 文件。"""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as file:
+        json.dump(metadata, file, ensure_ascii=False, indent=2)
         file.write("\n")
 
 
-def load_capture_metadata(
-    path: Path,
-) -> dict[str, Any]:
+def load_capture_metadata(path: Path) -> dict[str, Any]:
     """重新加载 metadata.json。"""
-
-    with Path(path).open(
-        "r",
-        encoding="utf-8",
-    ) as file:
+    with Path(path).open("r", encoding="utf-8") as file:
         return json.load(file)

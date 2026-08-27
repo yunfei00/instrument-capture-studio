@@ -28,7 +28,7 @@ def run_connected_paired_capture(
     progress_callback: ProgressCallback | None = None,
     capture_metadata: dict[str, object] | None = None,
 ) -> CaptureResult:
-    """Run one schema-v2 EXT+IMM paired sample on connected adapters."""
+    """Run one formal schema-v1 EXT+IMM paired sample on connected adapters."""
     result: CaptureResult | None = None
     application_started_at = datetime.now(timezone.utc)
     stage = "prepare_job_storage"
@@ -50,7 +50,7 @@ def run_connected_paired_capture(
 
         initial_metadata = deepcopy(capture_metadata or {})
         initial_metadata["recipe"] = "ext_imm_pair"
-        initial_metadata["schema_version"] = 2
+        initial_metadata["schema_version"] = 1
         initial_metadata["instruments"] = {
             "spectrum_analyzer": spectrum_snapshot,
             "oscilloscope": oscilloscope_snapshot,
@@ -79,7 +79,7 @@ def run_connected_paired_capture(
                 metadata={
                     **deepcopy(capture_metadata or {}),
                     "recipe": "ext_imm_pair",
-                    "schema_version": 2,
+                    "schema_version": 1,
                     "application_error": {
                         "stage": stage,
                         "instrument": (
@@ -149,7 +149,7 @@ def run_paired_capture(
                 finished_at=datetime.now(timezone.utc),
                 metadata={
                     "recipe": "ext_imm_pair",
-                    "schema_version": 2,
+                    "schema_version": 1,
                     "application_error": {
                         "stage": "connect_or_capture",
                         "error_type": type(exc).__name__,

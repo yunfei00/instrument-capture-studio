@@ -8,23 +8,37 @@ from instrument_capture_studio.data.batch_trace_export import (
 )
 
 
+def _save_spectrum(path: Path, center_hz: float, level: float) -> None:
+    np.savez_compressed(
+        path,
+        frequency_hz=np.array([center_hz - 1e6, center_hz, center_hz + 1e6]),
+        amplitude_dbm=np.array([level - 5, level, level - 3]),
+    )
+
+
+def _save_waveform(path: Path, scale: float) -> None:
+    np.savez_compressed(
+        path,
+        time_s=np.array([0.0, scale, 2 * scale]),
+        voltage_v=np.array([0.0, 1.0, 0.0]),
+    )
+
+
 def test_export_all_batch_traces(tmp_path: Path):
     data_root = tmp_path / "data"
     job_directory = data_root / "2026-08-26" / "job-1"
     job_directory.mkdir(parents=True)
 
-    spectrum = job_directory / "spectrum.npz"
-    waveform = job_directory / "waveform.npz"
-    np.savez_compressed(
-        spectrum,
-        frequency_hz=np.array([700e6, 700.5e6, 701e6]),
-        amplitude_dbm=np.array([-80.0, -55.0, -70.0]),
-    )
-    np.savez_compressed(
-        waveform,
-        time_s=np.array([0.0, 1e-6, 2e-6]),
-        voltage_v=np.array([0.0, 1.0, 0.0]),
-    )
+    files = {
+        "spectrum_ext": job_directory / "spectrum_ext.npz",
+        "spectrum_imm": job_directory / "spectrum_imm.npz",
+        "waveform_delay": job_directory / "waveform_delay.npz",
+        "waveform_cycle": job_directory / "waveform_cycle.npz",
+    }
+    _save_spectrum(files["spectrum_ext"], 700e6, -55.0)
+    _save_spectrum(files["spectrum_imm"], 700e6, -65.0)
+    _save_waveform(files["waveform_delay"], 1e-7)
+    _save_waveform(files["waveform_cycle"], 1e-5)
 
     batch_directory = data_root / "batches" / "2026-08-26" / "batch-1"
     batch_directory.mkdir(parents=True)
@@ -41,7 +55,7 @@ def test_export_all_batch_traces(tmp_path: Path):
                         "frequency_hz": 700e6,
                         "frequency_index": 1,
                         "capture_index": 1,
-                        "output_files": [str(spectrum), str(waveform)],
+                        "output_files": [str(path) for path in files.values()],
                     }
                 ],
             }
@@ -58,15 +72,17 @@ def test_export_all_batch_traces(tmp_path: Path):
     )
 
     assert result.canceled is False
-    assert result.total_files == 2
-    assert result.exported_files == 2
+    assert result.total_files == 4
+    assert result.exported_files == 4
     assert result.failed_files == 0
     assert result.index_csv.exists()
-    assert len(list((result.output_directory / "spectrum").glob("*.svg"))) == 1
-    assert len(list((result.output_directory / "waveform").glob("*.svg"))) == 1
+    for kind in files:
+        assert len(list((result.output_directory / kind).glob("*.svg"))) == 1
     assert progress == [
-        (1, 2, "batch-1-f001-n0001"),
-        (2, 2, "batch-1-f001-n0001"),
+        (1, 4, "batch-1-f001-n0001"),
+        (2, 4, "batch-1-f001-n0001"),
+        (3, 4, "batch-1-f001-n0001"),
+        (4, 4, "batch-1-f001-n0001"),
     ]
 
 

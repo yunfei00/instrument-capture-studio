@@ -1,8 +1,12 @@
-"""Discovery and validation helpers for resumable Batch capture."""
+"""Discovery and validation helpers for resumable formal Batch capture."""
 
 from dataclasses import dataclass
 from pathlib import Path
 
+from instrument_capture_studio.app.batch_configuration import (
+    BatchCaptureConfiguration,
+    load_configuration_for_manifest,
+)
 from instrument_capture_studio.app.frequency_sweep import FrequencySweepPlan
 from instrument_capture_studio.data.batch_manifest import load_batch_manifest
 
@@ -16,6 +20,7 @@ class ResumableBatch:
     batch_id: str
     state: str
     plan: FrequencySweepPlan
+    configuration: BatchCaptureConfiguration
     completed_captures: int
     total_captures: int
 
@@ -51,6 +56,7 @@ def load_resumable_batch(path: Path) -> ResumableBatch:
         raise ValueError("batch manifest is missing batch_id")
     state = str(payload.get("state") or "unknown").lower()
     plan = _plan_from_payload(payload)
+    configuration = load_configuration_for_manifest(manifest_path)
     try:
         completed = int(payload.get("completed_captures") or 0)
     except (TypeError, ValueError):
@@ -61,11 +67,16 @@ def load_resumable_batch(path: Path) -> ResumableBatch:
     if completed >= plan.total_captures:
         raise ValueError("batch has no remaining captures")
 
+    # The plan in batch.json is authoritative for sample cursoring, while the
+    # separate configuration snapshot is authoritative for all instrument
+    # parameters. Keeping both is intentional: a resume never depends on the
+    # user's current GUI/QSettings values.
     return ResumableBatch(
         manifest_path=manifest_path,
         batch_id=batch_id,
         state=state,
         plan=plan,
+        configuration=configuration,
         completed_captures=completed,
         total_captures=plan.total_captures,
     )
@@ -90,6 +101,8 @@ def list_resumable_batches(root: Path, limit: int = 20) -> tuple[ResumableBatch,
         try:
             batch = load_resumable_batch(path)
         except (OSError, ValueError):
+            # Debug batches created before frozen configuration snapshots are
+            # deliberately ignored. The user confirmed those data are disposable.
             continue
         results.append(batch)
         if len(results) >= max(0, limit):

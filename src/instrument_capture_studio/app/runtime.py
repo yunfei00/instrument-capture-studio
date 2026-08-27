@@ -46,6 +46,11 @@ class DSOXRuntimeSettings:
     delay_edge2: str = "+1"
     cycle_count_source: str = "CHANnel1"
     waveform_channel: int = 1
+    # Two real oscilloscope acquisitions are required for every training
+    # sample. Keep the historically qualified defaults but expose them to the
+    # GUI so they can be changed and persisted.
+    delay_timebase_scale_s: float = 5.0e-7
+    cycle_timebase_scale_s: float = 1.0e-4
 
     def __post_init__(self) -> None:
         if not self.resource.strip():
@@ -54,6 +59,10 @@ class DSOXRuntimeSettings:
             raise ValueError("DSO-X transport timeout must be greater than 0")
         if self.waveform_channel not in {1, 2, 3, 4}:
             raise ValueError("waveform_channel must be between 1 and 4")
+        if self.delay_timebase_scale_s <= 0:
+            raise ValueError("delay_timebase_scale_s must be greater than 0")
+        if self.cycle_timebase_scale_s <= 0:
+            raise ValueError("cycle_timebase_scale_s must be greater than 0")
 
 
 def build_fsw_adapter(settings: FSWRuntimeSettings) -> FSWAdapter:
@@ -103,5 +112,7 @@ def build_dsox_adapter(settings: DSOXRuntimeSettings) -> DSOX3034AAdapter:
             delay_edge2=settings.delay_edge2,
             cycle_count_source=settings.cycle_count_source,
             waveform_channel=settings.waveform_channel,
+            delay_timebase_scale_s=settings.delay_timebase_scale_s,
+            cycle_timebase_scale_s=settings.cycle_timebase_scale_s,
         ),
     )

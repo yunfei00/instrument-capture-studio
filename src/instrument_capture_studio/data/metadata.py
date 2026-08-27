@@ -12,12 +12,8 @@ def _spectrum_summary(spectrum: SpectrumResult | None) -> dict[str, Any] | None:
         return None
     return {
         "points": spectrum.points,
-        "start_frequency_hz": (
-            spectrum.frequencies_hz[0] if spectrum.points else None
-        ),
-        "stop_frequency_hz": (
-            spectrum.frequencies_hz[-1] if spectrum.points else None
-        ),
+        "start_frequency_hz": spectrum.frequencies_hz[0] if spectrum.points else None,
+        "stop_frequency_hz": spectrum.frequencies_hz[-1] if spectrum.points else None,
         "metadata": spectrum.metadata,
     }
 
@@ -39,14 +35,11 @@ def build_capture_metadata(
     *,
     captured_at: datetime | None = None,
 ) -> dict[str, Any]:
-    """把 CaptureContext 转换为可持久化的 Job 元数据。
-
-    Schema v1 remains unchanged for legacy single-spectrum jobs. Schema v2 is
-    selected automatically when a paired EXT/IMM spectrum is present.
-    """
+    """把 CaptureContext 转换为可持久化的 Job 元数据。"""
 
     timestamp = captured_at or datetime.now()
     waveform = context.waveform
+    recipe = context.metadata.get("recipe")
 
     metadata: dict[str, Any] = {
         "schema_version": context.schema_version,
@@ -69,6 +62,8 @@ def build_capture_metadata(
         ),
         "metadata": context.metadata,
     }
+    if recipe is not None:
+        metadata["recipe"] = str(recipe)
 
     if context.schema_version == 1:
         metadata["spectrum"] = _spectrum_summary(context.spectrum)
@@ -77,10 +72,7 @@ def build_capture_metadata(
             "ext": _spectrum_summary(context.spectrum_ext),
             "imm": _spectrum_summary(context.spectrum_imm),
         }
-        # Explicit recipe marker makes downstream dataset tooling unambiguous.
-        metadata["recipe"] = str(
-            context.metadata.get("recipe", "ext_imm_pair")
-        )
+        metadata.setdefault("recipe", "ext_imm_pair")
 
     return metadata
 

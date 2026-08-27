@@ -37,6 +37,20 @@ from instrument_capture_studio.ui.trace_viewer import (
 )
 
 
+_FORMAL_JOB_FILES = (
+    "job.json",
+    "metadata.json",
+    "spectrum_ext.npz",
+    "spectrum_imm.npz",
+    "waveform_delay.npz",
+    "waveform_cycle.npz",
+    "spectrum_ext.csv",
+    "spectrum_imm.csv",
+    "waveform_delay.csv",
+    "waveform_cycle.csv",
+)
+
+
 class MainWindow(Phase7MainWindow):
     """Phase 7 product window with templates, browsing, plots, reports, and logs."""
 
@@ -50,7 +64,7 @@ class MainWindow(Phase7MainWindow):
         self.data_tree.itemDoubleClicked.connect(self._open_data_item)
         self.data_tree.itemSelectionChanged.connect(self._update_result_actions)
         self.data_tree.setToolTip(
-            "双击 Job 打开目录；双击 NPZ 查看曲线；双击 JSON 查看详情。"
+            "双击 Job 打开目录；双击 EXT/IMM/DELAY/CYCLE NPZ 查看曲线；双击 JSON 查看详情。"
         )
         self._refresh_data_tree()
         self._append_log(f"会话日志：{self._session_log.path}")
@@ -262,14 +276,7 @@ class MainWindow(Phase7MainWindow):
             node.setData(0, Qt.ItemDataRole.UserRole, str(job.directory))
             job_root.addChild(node)
 
-            for filename in (
-                "job.json",
-                "metadata.json",
-                "spectrum.npz",
-                "waveform.npz",
-                "spectrum.csv",
-                "waveform.csv",
-            ):
+            for filename in _FORMAL_JOB_FILES:
                 path = job.directory / filename
                 if not path.exists():
                     continue

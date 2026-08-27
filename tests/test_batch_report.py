@@ -7,19 +7,33 @@ from instrument_capture_studio.reporting.batch_report import export_batch_report
 
 def _job_files(job_dir, frequency_hz):
     job_dir.mkdir(parents=True)
-    spectrum = job_dir / "spectrum.npz"
-    waveform = job_dir / "waveform.npz"
-    np.savez_compressed(
-        spectrum,
-        frequency_hz=np.array([frequency_hz - 1e6, frequency_hz, frequency_hz + 1e6]),
-        amplitude_dbm=np.array([-80.0, -40.0, -70.0]),
-    )
-    np.savez_compressed(
-        waveform,
-        time_s=np.array([0.0, 1e-6, 2e-6]),
-        voltage_v=np.array([0.0, 1.0, 0.0]),
-    )
-    return [str(spectrum), str(waveform)]
+    files = {
+        "spectrum_ext": job_dir / "spectrum_ext.npz",
+        "spectrum_imm": job_dir / "spectrum_imm.npz",
+        "waveform_delay": job_dir / "waveform_delay.npz",
+        "waveform_cycle": job_dir / "waveform_cycle.npz",
+    }
+    for path, level in (
+        (files["spectrum_ext"], -40.0),
+        (files["spectrum_imm"], -55.0),
+    ):
+        np.savez_compressed(
+            path,
+            frequency_hz=np.array(
+                [frequency_hz - 1e6, frequency_hz, frequency_hz + 1e6]
+            ),
+            amplitude_dbm=np.array([-80.0, level, -70.0]),
+        )
+    for path, scale in (
+        (files["waveform_delay"], 1e-7),
+        (files["waveform_cycle"], 1e-5),
+    ):
+        np.savez_compressed(
+            path,
+            time_s=np.array([0.0, scale, 2 * scale]),
+            voltage_v=np.array([0.0, 1.0, 0.0]),
+        )
+    return [str(path) for path in files.values()]
 
 
 def test_exports_large_batch_summary_with_representative_plots(tmp_path):
@@ -76,14 +90,18 @@ def test_exports_large_batch_summary_with_representative_plots(tmp_path):
 
     assert result.report_html.exists()
     assert result.jobs_csv.exists()
-    assert result.asset_count == 4
+    assert result.asset_count == 8
 
     html = result.report_html.read_text(encoding="utf-8")
     assert "batch-001" in html
     assert "700" in html
     assert "705" in html
+    assert "EXT" in html
+    assert "IMM" in html
+    assert "DELAY" in html
+    assert "CYCLE" in html
     assert "jobs.csv" in html
 
     assets = sorted((result.report_html.parent / "assets").glob("*.svg"))
-    assert len(assets) == 4
+    assert len(assets) == 8
     assert all("<svg" in path.read_text(encoding="utf-8") for path in assets)

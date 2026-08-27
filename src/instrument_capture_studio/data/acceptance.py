@@ -1,5 +1,6 @@
 """Release-acceptance checks for saved capture batches."""
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -7,13 +8,33 @@ from typing import Any
 from instrument_capture_studio.data.batch_manifest import load_batch_manifest
 
 
-_REQUIRED_JOB_FILES = {
-    "job.json",
-    "metadata.json",
-    "spectrum.csv",
-    "spectrum.npz",
-    "waveform.csv",
-    "waveform.npz",
+_REQUIRED_BY_RECIPE = {
+    "ext_imm_pair": {
+        "job.json",
+        "metadata.json",
+        "spectrum_ext.csv",
+        "spectrum_ext.npz",
+        "spectrum_imm.csv",
+        "spectrum_imm.npz",
+        "waveform_delay.csv",
+        "waveform_delay.npz",
+        "waveform_cycle.csv",
+        "waveform_cycle.npz",
+    },
+    "imm_spectrum_only": {
+        "job.json",
+        "metadata.json",
+        "spectrum_imm.csv",
+        "spectrum_imm.npz",
+    },
+    "dsox_only": {
+        "job.json",
+        "metadata.json",
+        "waveform_delay.csv",
+        "waveform_delay.npz",
+        "waveform_cycle.csv",
+        "waveform_cycle.npz",
+    },
 }
 
 
@@ -41,7 +62,7 @@ class BatchAcceptanceReport:
 
 
 def validate_batch_artifacts(manifest_path: Path) -> BatchAcceptanceReport:
-    """Validate a completed Batch and all six standard files per successful Job."""
+    """Validate each successful Job against its formal Recipe artifact set."""
 
     manifest_path = Path(manifest_path).expanduser().resolve()
     manifest = load_batch_manifest(manifest_path)
@@ -77,12 +98,18 @@ def validate_batch_artifacts(manifest_path: Path) -> BatchAcceptanceReport:
             missing.append(f"{job_id}: job directory not found")
             continue
 
+        recipe = _read_recipe(job_directory)
+        required = _REQUIRED_BY_RECIPE.get(recipe)
+        if required is None:
+            missing.append(f"{job_id}: unsupported or missing recipe {recipe!r}")
+            continue
+
         present = {
             child.name
             for child in job_directory.iterdir()
             if child.is_file()
         }
-        for filename in sorted(_REQUIRED_JOB_FILES - present):
+        for filename in sorted(required - present):
             missing.append(f"{job_id}: {filename}")
 
     total_captures = _as_int(manifest.get("plan", {}), "total_captures")
@@ -111,6 +138,17 @@ def validate_batch_artifacts(manifest_path: Path) -> BatchAcceptanceReport:
         missing_files=tuple(missing),
         warnings=tuple(warnings),
     )
+
+
+def _read_recipe(job_directory: Path) -> str:
+    metadata_path = job_directory / "metadata.json"
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    if not isinstance(payload, dict):
+        return ""
+    return str(payload.get("recipe") or "").strip().lower()
 
 
 def _resolve_job_directory(

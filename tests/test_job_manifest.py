@@ -1,7 +1,5 @@
 from datetime import datetime, timezone
 
-import pytest
-
 from instrument_capture_studio.core.models import (
     CaptureResult,
     JobState,
@@ -62,37 +60,17 @@ def test_build_success_job_manifest():
         },
     )
 
-    manifest = build_job_manifest(
-        result
-    )
+    manifest = build_job_manifest(result)
 
-    assert manifest[
-        "schema_version"
-    ] == 1
-
-    assert manifest[
-        "job_id"
-    ] == "job-success"
-
-    assert manifest[
-        "state"
-    ] == "succeeded"
-
-    assert manifest[
-        "started_at"
-    ] == STARTED.isoformat()
-
-    assert manifest[
-        "finished_at"
-    ] == FINISHED.isoformat()
-
-    assert manifest[
-        "steps"
-    ][0]["state"] == "succeeded"
-
-    assert manifest[
-        "output_files"
-    ] == [
+    assert manifest["schema_version"] == 1
+    assert manifest["job_id"] == "job-success"
+    assert manifest["state"] == "succeeded"
+    assert manifest["started_at"] == STARTED.isoformat()
+    assert manifest["finished_at"] == FINISHED.isoformat()
+    assert manifest["duration_ms"] == 5000.0
+    assert manifest["steps"][0]["state"] == "succeeded"
+    assert manifest["steps"][0]["duration_ms"] == 5000.0
+    assert manifest["output_files"] == [
         "metadata.json",
         "spectrum.npz",
     ]
@@ -112,9 +90,7 @@ def test_build_failed_job_manifest_keeps_error():
                 finished_at=FINISHED,
                 error="measurement timeout",
                 metadata={
-                    "error_type": (
-                        "InstrumentTimeoutError"
-                    ),
+                    "error_type": "InstrumentTimeoutError",
                     "attempts": 1,
                 },
             ),
@@ -125,29 +101,16 @@ def test_build_failed_job_manifest_keeps_error():
         ],
     )
 
-    manifest = build_job_manifest(
-        result
+    manifest = build_job_manifest(result)
+
+    assert manifest["state"] == "failed"
+    assert manifest["steps"][0]["error"] == "measurement timeout"
+    assert manifest["steps"][0]["metadata"]["error_type"] == (
+        "InstrumentTimeoutError"
     )
-
-    assert manifest[
-        "state"
-    ] == "failed"
-
-    assert manifest[
-        "steps"
-    ][0]["error"] == (
-        "measurement timeout"
-    )
-
-    assert manifest[
-        "steps"
-    ][0]["metadata"][
-        "error_type"
-    ] == "InstrumentTimeoutError"
-
-    assert manifest[
-        "steps"
-    ][1]["state"] == "skipped"
+    assert manifest["steps"][0]["duration_ms"] == 5000.0
+    assert manifest["steps"][1]["state"] == "skipped"
+    assert manifest["steps"][1]["duration_ms"] is None
 
 
 def test_build_canceled_job_manifest():
@@ -165,28 +128,14 @@ def test_build_canceled_job_manifest():
         ],
     )
 
-    manifest = build_job_manifest(
-        result
-    )
+    manifest = build_job_manifest(result)
 
-    assert manifest[
-        "state"
-    ] == "canceled"
-
-    assert manifest[
-        "steps"
-    ][0]["state"] == "canceled"
-
-    assert manifest[
-        "steps"
-    ][0]["error"] == (
-        "measurement canceled"
-    )
+    assert manifest["state"] == "canceled"
+    assert manifest["steps"][0]["state"] == "canceled"
+    assert manifest["steps"][0]["error"] == "measurement canceled"
 
 
-def test_job_manifest_write_and_reload(
-    tmp_path,
-):
+def test_job_manifest_write_and_reload(tmp_path):
     result = CaptureResult(
         job_id="job-reload",
         state=JobState.SUCCEEDED,
@@ -194,24 +143,10 @@ def test_job_manifest_write_and_reload(
         finished_at=FINISHED,
     )
 
-    manifest = build_job_manifest(
-        result
-    )
-
-    path = (
-        tmp_path
-        / "job.json"
-    )
-
-    write_job_manifest(
-        path,
-        manifest,
-    )
+    manifest = build_job_manifest(result)
+    path = tmp_path / "job.json"
+    write_job_manifest(path, manifest)
 
     assert path.is_file()
-
-    loaded = load_job_manifest(
-        path
-    )
-
+    loaded = load_job_manifest(path)
     assert loaded == manifest

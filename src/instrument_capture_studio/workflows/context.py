@@ -11,10 +11,13 @@ from instrument_capture_studio.core.results import (
 class CaptureContext:
     """一次采集任务运行期间共享的数据上下文。
 
-    ``spectrum`` is the schema-v1 single-spectrum field.
-    ``spectrum_ext`` / ``spectrum_imm`` are schema-v2 paired-training fields.
-    Keeping all three fields allows old jobs to remain loadable while new
-    recipes can persist the real EXT + IMM training pair explicitly.
+    正式采集格式从 Phase 8 调试结束后重新从 schema v1 起步。EXT 配对
+    样本明确包含两份频谱（EXT/IMM）和两次独立示波器采集
+    （DELAY/CYCLE_COUNT），不再把两次示波器采集合并成一个 waveform。
+
+    ``spectrum`` / ``waveform`` 暂时仅供旧的内部调试 workflow 使用；正式
+    Recipe 使用 ``spectrum_ext`` / ``spectrum_imm``、``waveform_delay`` /
+    ``waveform_cycle``。
     """
 
     spectrum: SpectrumResult | None = None
@@ -24,16 +27,19 @@ class CaptureContext:
     delay: MeasurementResult | None = None
     cycle_count: MeasurementResult | None = None
     waveform: WaveformResult | None = None
+    waveform_delay: WaveformResult | None = None
+    waveform_cycle: WaveformResult | None = None
 
     metadata: dict[str, object] = field(default_factory=dict)
 
     @property
     def schema_version(self) -> int:
-        return 2 if (self.spectrum_ext is not None or self.spectrum_imm is not None) else 1
+        # 正式数据格式重新从 v1 开始；调试数据不承担兼容约束。
+        return 1
 
     @property
     def is_complete(self) -> bool:
-        """Legacy schema-v1 combined capture completeness."""
+        """旧内部联合采集完整性，仅用于尚未删除的调试 workflow。"""
         return all(
             (
                 self.spectrum is not None,
@@ -45,14 +51,26 @@ class CaptureContext:
 
     @property
     def is_paired_complete(self) -> bool:
-        """Schema-v2 EXT + IMM + DSO-X logical sample completeness."""
+        """正式 EXT+IMM 训练样本完整性。"""
         return all(
             (
                 self.spectrum_ext is not None,
                 self.spectrum_imm is not None,
                 self.delay is not None,
                 self.cycle_count is not None,
-                self.waveform is not None,
+                self.waveform_delay is not None,
+                self.waveform_cycle is not None,
+            )
+        )
+
+    @property
+    def is_dsox_complete(self) -> bool:
+        return all(
+            (
+                self.delay is not None,
+                self.cycle_count is not None,
+                self.waveform_delay is not None,
+                self.waveform_cycle is not None,
             )
         )
 
@@ -62,7 +80,7 @@ class CaptureContext:
         if recipe == "ext_imm_pair":
             return self.is_paired_complete
         if recipe == "imm_spectrum_only":
-            return self.spectrum is not None
+            return self.spectrum_imm is not None
         if recipe == "dsox_only":
-            return self.waveform is not None
-        return self.is_paired_complete if self.schema_version == 2 else self.is_complete
+            return self.is_dsox_complete
+        return self.is_complete

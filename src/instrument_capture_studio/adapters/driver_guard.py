@@ -25,6 +25,16 @@ class DriverErrorGuard:
     ):
         self._driver = driver
 
+    def supports(self, name: str) -> bool:
+        """Return whether the wrapped driver exposes a named capability.
+
+        Capability probing must inspect the raw driver directly. Going through
+        ``__getattr__`` would turn a normal missing optional method into a
+        product runtime error before an adapter can select a compatibility
+        implementation.
+        """
+        return hasattr(self._driver, name)
+
     def __getattr__(
         self,
         name: str,

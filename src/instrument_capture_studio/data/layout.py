@@ -20,105 +20,65 @@ class JobDataLayout:
         capture_date: date | None = None,
     ) -> "JobDataLayout":
         normalized_job_id = job_id.strip()
-
         if not normalized_job_id:
-            raise ValueError(
-                "job_id must not be empty"
-            )
-
-        if (
-            "/" in normalized_job_id
-            or "\\" in normalized_job_id
-        ):
-            raise ValueError(
-                "job_id must not contain path separators"
-            )
-
+            raise ValueError("job_id must not be empty")
+        if "/" in normalized_job_id or "\\" in normalized_job_id:
+            raise ValueError("job_id must not contain path separators")
         return cls(
             root=Path(root),
             job_id=normalized_job_id,
-            capture_date=(
-                capture_date
-                or date.today()
-            ),
+            capture_date=capture_date or date.today(),
         )
 
     @property
-    def date_directory(
-        self,
-    ) -> Path:
-        return (
-            self.root
-            / self.capture_date.isoformat()
-        )
+    def date_directory(self) -> Path:
+        return self.root / self.capture_date.isoformat()
 
     @property
-    def job_directory(
-        self,
-    ) -> Path:
-        return (
-            self.date_directory
-            / self.job_id
-        )
+    def job_directory(self) -> Path:
+        return self.date_directory / self.job_id
 
     @property
-    def metadata_path(
-        self,
-    ) -> Path:
-        return (
-            self.job_directory
-            / "metadata.json"
-        )
+    def metadata_path(self) -> Path:
+        return self.job_directory / "metadata.json"
 
     @property
-    def job_manifest_path(
-        self,
-    ) -> Path:
-        return (
-            self.job_directory
-            / "job.json"
-        )
+    def job_manifest_path(self) -> Path:
+        return self.job_directory / "job.json"
+
+    # Schema v1 single-spectrum paths.
+    @property
+    def spectrum_csv_path(self) -> Path:
+        return self.job_directory / "spectrum.csv"
 
     @property
-    def spectrum_csv_path(
-        self,
-    ) -> Path:
-        return (
-            self.job_directory
-            / "spectrum.csv"
-        )
+    def spectrum_npz_path(self) -> Path:
+        return self.job_directory / "spectrum.npz"
+
+    # Schema v2 paired-training spectrum paths.
+    @property
+    def spectrum_ext_csv_path(self) -> Path:
+        return self.job_directory / "spectrum_ext.csv"
 
     @property
-    def spectrum_npz_path(
-        self,
-    ) -> Path:
-        return (
-            self.job_directory
-            / "spectrum.npz"
-        )
+    def spectrum_ext_npz_path(self) -> Path:
+        return self.job_directory / "spectrum_ext.npz"
 
     @property
-    def waveform_csv_path(
-        self,
-    ) -> Path:
-        return (
-            self.job_directory
-            / "waveform.csv"
-        )
+    def spectrum_imm_csv_path(self) -> Path:
+        return self.job_directory / "spectrum_imm.csv"
 
     @property
-    def waveform_npz_path(
-        self,
-    ) -> Path:
-        return (
-            self.job_directory
-            / "waveform.npz"
-        )
+    def spectrum_imm_npz_path(self) -> Path:
+        return self.job_directory / "spectrum_imm.npz"
 
-    def create_directories(
-        self,
-    ) -> None:
-        self.job_directory.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+    @property
+    def waveform_csv_path(self) -> Path:
+        return self.job_directory / "waveform.csv"
+
+    @property
+    def waveform_npz_path(self) -> Path:
+        return self.job_directory / "waveform.npz"
+
+    def create_directories(self) -> None:
+        self.job_directory.mkdir(parents=True, exist_ok=True)

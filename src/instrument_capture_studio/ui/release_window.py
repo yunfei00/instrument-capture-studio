@@ -10,10 +10,10 @@ reported completion.
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QMessageBox
 
-from instrument_capture_studio.ui.phase8_window import MainWindow as Phase8Window
+from instrument_capture_studio.ui.phase8b_window import MainWindow as Phase8BWindow
 
 
-class MainWindow(Phase8Window):
+class MainWindow(Phase8BWindow):
     """Release-hardened window with deferred close for hardware operations."""
 
     def __init__(self) -> None:

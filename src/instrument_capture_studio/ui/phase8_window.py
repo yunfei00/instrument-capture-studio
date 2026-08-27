@@ -1,6 +1,8 @@
 """Phase 8 UI: separate capture recipe from repetition/execution mode."""
 
-from PySide6.QtWidgets import QComboBox, QGridLayout, QLabel
+from dataclasses import replace
+
+from PySide6.QtWidgets import QComboBox, QFormLayout, QGridLayout, QLabel
 
 from instrument_capture_studio.app.capture_recipe import CaptureRecipe, ExecutionMode
 from instrument_capture_studio.app.frequency_sweep import FrequencySweepPlan
@@ -19,16 +21,38 @@ class MainWindow(FinalWindow):
 
     def __init__(self) -> None:
         super().__init__()
+        self._install_dsox_group_controls()
         self._install_recipe_controls()
-        # Recipe controls are installed after parent preference restoration.
+        # New controls are installed after parent preference restoration, so
+        # restore once more to apply their persisted values.
         self._preferences.restore(self)
         self.recipe_combo.currentTextChanged.connect(self._save_preferences)
         self.recipe_combo.currentTextChanged.connect(self._sync_recipe_controls)
         self.waveform_channel_spin.valueChanged.connect(self._update_recipe_summary)
         self.capture_mode_combo.currentIndexChanged.connect(self._update_recipe_summary)
+        for edit in (
+            self.delay_timebase_scale_edit,
+            self.cycle_timebase_scale_edit,
+        ):
+            edit.editingFinished.connect(self._save_preferences)
+            edit.textChanged.connect(self._update_recipe_summary)
         self._sync_recipe_controls()
         self._update_recipe_summary()
         self.statusBar().showMessage("就绪 · Phase 8A · Recipe RC")
+
+    def _install_dsox_group_controls(self) -> None:
+        params = self.waveform_channel_spin.parentWidget()
+        layout = params.layout() if params is not None else None
+        if not isinstance(layout, QFormLayout):
+            raise RuntimeError("DSO-X parameter area must use QFormLayout")
+
+        self.delay_timebase_scale_edit = self._number_edit("5e-7")
+        self.delay_timebase_scale_edit.setObjectName("delayTimebaseScaleEdit")
+        self.cycle_timebase_scale_edit = self._number_edit("1e-4")
+        self.cycle_timebase_scale_edit.setObjectName("cycleTimebaseScaleEdit")
+
+        layout.addRow("DELAY 数据时基 (s/div)", self.delay_timebase_scale_edit)
+        layout.addRow("CYCLE 数据时基 (s/div)", self.cycle_timebase_scale_edit)
 
     def _install_recipe_controls(self) -> None:
         group = self.start_button.parentWidget()
@@ -104,6 +128,8 @@ class MainWindow(FinalWindow):
             self.delay_edge2_combo,
             self.cycle_source_edit,
             self.waveform_channel_spin,
+            self.delay_timebase_scale_edit,
+            self.cycle_timebase_scale_edit,
             self.dsox_connect_button,
         ):
             widget.setEnabled(requires_dsox and not self._capture_busy)
@@ -126,11 +152,31 @@ class MainWindow(FinalWindow):
             ):
                 widget.setEnabled(False)
 
+    def _build_dsox_settings(self):
+        settings = super()._build_dsox_settings()
+        return replace(
+            settings,
+            delay_timebase_scale_s=self._required_float(
+                self.delay_timebase_scale_edit,
+                "DELAY 数据时基",
+            ),
+            cycle_timebase_scale_s=self._required_float(
+                self.cycle_timebase_scale_edit,
+                "CYCLE 数据时基",
+            ),
+        )
+
     def _update_recipe_summary(self, *_args) -> None:
         if not hasattr(self, "recipe_combo"):
             return
         recipe = self._selected_recipe()
         channel = self.waveform_channel_spin.value()
+        delay_scale = self.delay_timebase_scale_edit.text().strip()
+        cycle_scale = self.cycle_timebase_scale_edit.text().strip()
+        dsox_text = (
+            f"DSO-X 两次独立采集：DELAY组 {delay_scale}s/div + "
+            f"CYCLE组 {cycle_scale}s/div，均采 CH{channel}。"
+        )
         if recipe is CaptureRecipe.EXT_IMM_PAIR:
             mode = self._selected_execution_mode()
             mode_text = {
@@ -139,17 +185,16 @@ class MainWindow(FinalWindow):
                 ExecutionMode.FIXED_REPEAT: "固定频率重复",
             }[mode]
             self.recipe_summary_label.setText(
-                f"{mode_text} · FSW先EXT ARM → DSO-X CH{channel}采集/触发 → "
-                "读取EXT → 同频点IMM；EXT+IMM+示波器作为一个逻辑样本。"
+                f"{mode_text} · FSW EXT先ARM → DELAY组采集并触发FSW → "
+                f"读取EXT → CYCLE组第二次采集 → 同频点IMM。{dsox_text}"
             )
         elif recipe is CaptureRecipe.IMM_SPECTRUM_ONLY:
             self.recipe_summary_label.setText(
-                "只连接 FSW · Trigger 固定 IMM · 每个 Job 保存一份频谱。"
+                "只连接 FSW · Trigger 固定 IMM · 每个 Job 保存 spectrum_imm。"
             )
         else:
             self.recipe_summary_label.setText(
-                f"只连接 DSO-X · Waveform Channel = CH{channel} · "
-                "首次默认 CH1，选择会自动记忆。"
+                f"只连接 DSO-X。{dsox_text} 两组波形分别保存，不互相覆盖。"
             )
 
     def _start_capture(self) -> None:
@@ -215,7 +260,9 @@ class MainWindow(FinalWindow):
         )
         self._append_log(
             f"Phase 8 Recipe：{recipe.value} · {execution.value} · "
-            f"Waveform CH{self.waveform_channel_spin.value()}"
+            f"CH{self.waveform_channel_spin.value()} · "
+            f"DELAY timebase={self.delay_timebase_scale_edit.text()} · "
+            f"CYCLE timebase={self.cycle_timebase_scale_edit.text()}"
         )
 
     def _set_capture_busy(self, busy: bool) -> None:

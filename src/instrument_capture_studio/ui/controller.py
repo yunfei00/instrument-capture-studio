@@ -12,8 +12,13 @@ from uuid import uuid4
 from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from instrument_capture_studio.app.batch_capture import run_frequency_sweep_batch
+from instrument_capture_studio.app.capture_recipe import CaptureRecipe, ExecutionMode
 from instrument_capture_studio.app.combined_capture import run_combined_capture
 from instrument_capture_studio.app.frequency_sweep import FrequencySweepPlan
+from instrument_capture_studio.app.paired_capture import (
+    run_connected_paired_capture,
+    run_paired_capture,
+)
 from instrument_capture_studio.app.recovery import (
     RecoveryPolicy,
     recovery_reason_from_exception,
@@ -24,6 +29,10 @@ from instrument_capture_studio.app.runtime import (
     FSWRuntimeSettings,
     build_dsox_adapter,
     build_fsw_adapter,
+)
+from instrument_capture_studio.app.single_recipe_capture import (
+    run_dsox_only_capture,
+    run_imm_spectrum_capture,
 )
 from instrument_capture_studio.data.job_sink import JobDirectoryResultSink
 
@@ -74,11 +83,7 @@ class HardwareWorker(QObject):
                 f"{status.name} 连接测试成功：{status.model or 'unknown model'}"
             )
         except Exception as exc:
-            self.instrument_test_failed.emit(
-                key,
-                type(exc).__name__,
-                str(exc),
-            )
+            self.instrument_test_failed.emit(key, type(exc).__name__, str(exc))
             self.log.emit(
                 f"{key.upper()} 连接测试失败：{type(exc).__name__}: {exc}"
             )
@@ -100,7 +105,6 @@ class HardwareWorker(QObject):
     ) -> bool:
         next_attempt = current_attempt + 1
         policy = self._recovery_policy
-
         self.capture_recovery.emit(
             next_attempt,
             policy.max_attempts,
@@ -112,13 +116,19 @@ class HardwareWorker(QObject):
             f"{policy.reconnect_delay_s:g}s 后自动重新建立 VISA 会话；"
             f"下一次尝试 {next_attempt}/{policy.max_attempts}。"
         )
-
         canceled = self._cancel_event.wait(policy.reconnect_delay_s)
         if canceled:
             self.log.emit("自动重连等待期间收到停止请求。")
             return False
-
         return True
+
+    def _report_progress(self, step_name, state, completed_steps, step_count) -> None:
+        self.capture_progress.emit(
+            step_name,
+            state,
+            completed_steps,
+            step_count,
+        )
 
     @Slot(object, object, str)
     def run_capture(
@@ -127,60 +137,33 @@ class HardwareWorker(QObject):
         dsox_settings: DSOXRuntimeSettings,
         output_root: str,
     ) -> None:
+        """Legacy schema-v1 combined capture path."""
+        self._run_legacy_single(fsw_settings, dsox_settings, output_root)
+
+    def _run_legacy_single(self, fsw_settings, dsox_settings, output_root) -> None:
         self._cancel_event.clear()
         base_job_id = f"capture-{uuid4().hex[:12]}"
         output_path = Path(output_root).expanduser().resolve()
-
-        def report_progress(
-            step_name: str,
-            state: str,
-            completed_steps: int,
-            step_count: int,
-        ) -> None:
-            self.capture_progress.emit(
-                step_name,
-                state,
-                completed_steps,
-                step_count,
-            )
-
         attempt = 1
         while attempt <= self._recovery_policy.max_attempts:
             if self._cancel_event.is_set():
                 self.capture_failed.emit(
-                    "CaptureCanceledError",
-                    "capture canceled before reconnect",
+                    "CaptureCanceledError", "capture canceled before reconnect"
                 )
                 return
-
-            job_id = (
-                base_job_id
-                if attempt == 1
-                else f"{base_job_id}-retry{attempt}"
-            )
+            job_id = base_job_id if attempt == 1 else f"{base_job_id}-retry{attempt}"
             self.capture_started.emit(job_id)
-
-            if attempt == 1:
-                self.log.emit(f"开始联合采集：{job_id}")
-            else:
-                self.log.emit(
-                    f"自动重连后重新执行完整 Capture Job：{job_id}"
-                )
-
             sink = JobDirectoryResultSink(output_path)
-
             try:
-                fsw = build_fsw_adapter(fsw_settings)
-                dsox = build_dsox_adapter(dsox_settings)
                 result = run_combined_capture(
-                    fsw,
-                    dsox,
+                    build_fsw_adapter(fsw_settings),
+                    build_dsox_adapter(dsox_settings),
                     job_id=job_id,
                     fsw_timeout_s=fsw_settings.step_timeout_s,
                     cancel_check=self._cancel_event.is_set,
                     result_sink=sink,
                     job_manifest_sink=sink,
-                    progress_callback=report_progress,
+                    progress_callback=self._report_progress,
                 )
             except Exception as exc:
                 reason = recovery_reason_from_exception(exc)
@@ -195,14 +178,123 @@ class HardwareWorker(QObject):
                 ):
                     attempt += 1
                     continue
+                self.capture_failed.emit(type(exc).__name__, str(exc))
+                self.log.emit(f"采集异常：{type(exc).__name__}: {exc}")
+                return
+            reason = recovery_reason_from_result(result)
+            if (
+                reason is not None
+                and self._recovery_policy.can_retry(attempt)
+                and self._wait_for_recovery(
+                    current_attempt=attempt,
+                    error_type=reason.error_type,
+                    message=reason.message,
+                )
+            ):
+                attempt += 1
+                continue
+            self.capture_finished.emit(result)
+            self.log.emit(f"采集结束：{job_id} · {result.state.value}")
+            return
 
+    @Slot(object)
+    def run_recipe(self, request: dict) -> None:
+        """Dispatch the Phase 8 recipe independently from repetition mode."""
+        self._cancel_event.clear()
+        recipe = CaptureRecipe(request["recipe"])
+        execution = ExecutionMode(request["execution_mode"])
+        output_root = str(request["output_root"])
+        fsw_settings = request.get("fsw_settings")
+        dsox_settings = request.get("dsox_settings")
+        plan = request.get("plan")
+
+        if execution is not ExecutionMode.SINGLE:
+            if recipe is not CaptureRecipe.EXT_IMM_PAIR:
                 self.capture_failed.emit(
-                    type(exc).__name__,
-                    str(exc),
+                    "UnsupportedRecipeMode",
+                    "当前版本 IMM 单采和示波器单采先支持单次模式；批量模式将在断点续采引擎中统一接入。",
                 )
-                self.log.emit(
-                    f"采集异常：{type(exc).__name__}: {exc}"
+                return
+            self._run_paired_batch(
+                fsw_settings,
+                dsox_settings,
+                output_root,
+                plan,
+            )
+            return
+
+        self._run_recipe_single(
+            recipe,
+            fsw_settings,
+            dsox_settings,
+            output_root,
+        )
+
+    def _run_recipe_single(
+        self,
+        recipe: CaptureRecipe,
+        fsw_settings,
+        dsox_settings,
+        output_root: str,
+    ) -> None:
+        base_job_id = f"capture-{uuid4().hex[:12]}"
+        output_path = Path(output_root).expanduser().resolve()
+        attempt = 1
+        while attempt <= self._recovery_policy.max_attempts:
+            if self._cancel_event.is_set():
+                self.capture_failed.emit(
+                    "CaptureCanceledError", "capture canceled before reconnect"
                 )
+                return
+            job_id = base_job_id if attempt == 1 else f"{base_job_id}-retry{attempt}"
+            self.capture_started.emit(job_id)
+            sink = JobDirectoryResultSink(output_path)
+            try:
+                if recipe is CaptureRecipe.EXT_IMM_PAIR:
+                    result = run_paired_capture(
+                        build_fsw_adapter(fsw_settings),
+                        build_dsox_adapter(dsox_settings),
+                        job_id=job_id,
+                        fsw_timeout_s=fsw_settings.step_timeout_s,
+                        cancel_check=self._cancel_event.is_set,
+                        result_sink=sink,
+                        job_manifest_sink=sink,
+                        progress_callback=self._report_progress,
+                    )
+                elif recipe is CaptureRecipe.IMM_SPECTRUM_ONLY:
+                    result = run_imm_spectrum_capture(
+                        build_fsw_adapter(fsw_settings),
+                        job_id=job_id,
+                        fsw_timeout_s=fsw_settings.step_timeout_s,
+                        cancel_check=self._cancel_event.is_set,
+                        result_sink=sink,
+                        job_manifest_sink=sink,
+                        progress_callback=self._report_progress,
+                    )
+                else:
+                    result = run_dsox_only_capture(
+                        build_dsox_adapter(dsox_settings),
+                        job_id=job_id,
+                        cancel_check=self._cancel_event.is_set,
+                        result_sink=sink,
+                        job_manifest_sink=sink,
+                        progress_callback=self._report_progress,
+                    )
+            except Exception as exc:
+                reason = recovery_reason_from_exception(exc)
+                if (
+                    reason is not None
+                    and self._recovery_policy.can_retry(attempt)
+                    and self._wait_for_recovery(
+                        current_attempt=attempt,
+                        error_type=reason.error_type,
+                        message=reason.message,
+                    )
+                ):
+                    attempt += 1
+                    continue
+                self.capture_failed.emit(type(exc).__name__, str(exc))
+                self.log.emit(f"Recipe 采集异常：{type(exc).__name__}: {exc}")
                 return
 
             reason = recovery_reason_from_result(result)
@@ -220,42 +312,32 @@ class HardwareWorker(QObject):
 
             self.capture_finished.emit(result)
             self.log.emit(
-                f"采集结束：{job_id} · {result.state.value}"
+                f"Recipe {recipe.value} 结束：{job_id} · {result.state.value}"
             )
             return
 
-    @Slot(object, object, str, object)
-    def run_frequency_sweep(
+    def _run_paired_batch(
         self,
-        fsw_settings: FSWRuntimeSettings,
-        dsox_settings: DSOXRuntimeSettings,
+        fsw_settings,
+        dsox_settings,
         output_root: str,
         plan: FrequencySweepPlan,
     ) -> None:
-        self._cancel_event.clear()
+        if plan is None:
+            self.capture_failed.emit("ValueError", "paired batch requires a plan")
+            return
         batch_id = f"batch-{uuid4().hex[:12]}"
         self.batch_started.emit(batch_id, plan.total_captures)
         self.log.emit(
-            "开始频率循环采集："
+            "开始 EXT+IMM 配对 Batch："
             f"{batch_id} · {plan.frequency_count} 个频点 · "
             f"每频点 {plan.captures_per_frequency} 次 · "
-            f"总计 {plan.total_captures} 次"
+            f"总计 {plan.total_captures} 个逻辑样本"
         )
 
-        def report_progress(progress) -> None:
-            self.batch_progress.emit(progress)
-
-        def report_recovery(
-            next_attempt: int,
-            max_attempts: int,
-            error_type: str,
-            message: str,
-        ) -> None:
+        def report_recovery(next_attempt, max_attempts, error_type, message):
             self.capture_recovery.emit(
-                next_attempt,
-                max_attempts,
-                error_type,
-                message,
+                next_attempt, max_attempts, error_type, message
             )
 
         try:
@@ -268,7 +350,50 @@ class HardwareWorker(QObject):
                 fsw_timeout_s=fsw_settings.step_timeout_s,
                 cancel_check=self._cancel_event.is_set,
                 recovery_policy=self._recovery_policy,
-                progress_callback=report_progress,
+                progress_callback=self.batch_progress.emit,
+                recovery_callback=report_recovery,
+                log_callback=self.log.emit,
+                capture_runner=run_connected_paired_capture,
+            )
+        except Exception as exc:
+            self.capture_failed.emit(type(exc).__name__, str(exc))
+            self.log.emit(f"配对 Batch 异常：{type(exc).__name__}: {exc}")
+            return
+        self.batch_finished.emit(result)
+        self.log.emit(
+            f"配对 Batch 结束：{batch_id} · {result.state.value} · "
+            f"{result.completed_captures}/{result.total_captures}"
+        )
+
+    @Slot(object, object, str, object)
+    def run_frequency_sweep(
+        self,
+        fsw_settings: FSWRuntimeSettings,
+        dsox_settings: DSOXRuntimeSettings,
+        output_root: str,
+        plan: FrequencySweepPlan,
+    ) -> None:
+        """Legacy schema-v1 batch path."""
+        self._cancel_event.clear()
+        batch_id = f"batch-{uuid4().hex[:12]}"
+        self.batch_started.emit(batch_id, plan.total_captures)
+
+        def report_recovery(next_attempt, max_attempts, error_type, message):
+            self.capture_recovery.emit(
+                next_attempt, max_attempts, error_type, message
+            )
+
+        try:
+            result = run_frequency_sweep_batch(
+                fsw_factory=lambda: build_fsw_adapter(fsw_settings),
+                dsox_factory=lambda: build_dsox_adapter(dsox_settings),
+                plan=plan,
+                batch_id=batch_id,
+                output_root=Path(output_root).expanduser().resolve(),
+                fsw_timeout_s=fsw_settings.step_timeout_s,
+                cancel_check=self._cancel_event.is_set,
+                recovery_policy=self._recovery_policy,
+                progress_callback=self.batch_progress.emit,
                 recovery_callback=report_recovery,
                 log_callback=self.log.emit,
             )
@@ -276,13 +401,7 @@ class HardwareWorker(QObject):
             self.capture_failed.emit(type(exc).__name__, str(exc))
             self.log.emit(f"批量采集异常：{type(exc).__name__}: {exc}")
             return
-
         self.batch_finished.emit(result)
-        self.log.emit(
-            "频率循环采集结束："
-            f"{batch_id} · {result.state.value} · "
-            f"{result.completed_captures}/{result.total_captures}"
-        )
 
 
 class HardwareController(QObject):
@@ -302,6 +421,7 @@ class HardwareController(QObject):
     _test_dsox_requested = Signal(object)
     _capture_requested = Signal(object, object, str)
     _sweep_requested = Signal(object, object, str, object)
+    _recipe_requested = Signal(object)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -314,6 +434,7 @@ class HardwareController(QObject):
         self._test_dsox_requested.connect(self._worker.test_dsox)
         self._capture_requested.connect(self._worker.run_capture)
         self._sweep_requested.connect(self._worker.run_frequency_sweep)
+        self._recipe_requested.connect(self._worker.run_recipe)
 
         self._worker.log.connect(self.log)
         self._worker.instrument_tested.connect(self.instrument_tested)
@@ -341,11 +462,7 @@ class HardwareController(QObject):
         dsox_settings: DSOXRuntimeSettings,
         output_root: str,
     ) -> None:
-        self._capture_requested.emit(
-            fsw_settings,
-            dsox_settings,
-            output_root,
-        )
+        self._capture_requested.emit(fsw_settings, dsox_settings, output_root)
 
     def start_frequency_sweep(
         self,
@@ -355,11 +472,11 @@ class HardwareController(QObject):
         plan: FrequencySweepPlan,
     ) -> None:
         self._sweep_requested.emit(
-            fsw_settings,
-            dsox_settings,
-            output_root,
-            plan,
+            fsw_settings, dsox_settings, output_root, plan
         )
+
+    def start_recipe(self, request: dict) -> None:
+        self._recipe_requested.emit(dict(request))
 
     def cancel_capture(self) -> None:
         self._cancel_event.set()

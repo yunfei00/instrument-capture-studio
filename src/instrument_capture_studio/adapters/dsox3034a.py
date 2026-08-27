@@ -1,5 +1,6 @@
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
-from typing import Any, Protocol
+from typing import Any, Iterator, Protocol
 
 from instrument_capture_studio.adapters.driver_guard import DriverErrorGuard
 from instrument_capture_studio.adapters.interfaces import OscilloscopeAdapter
@@ -29,6 +30,8 @@ class DSOX3034ADriverProtocol(Protocol):
     def disconnect(self) -> None: ...
 
     def set_timebase_scale(self, scale: float) -> None: ...
+    def get_trigger_sweep(self) -> str: ...
+    def set_trigger_sweep(self, sweep: str) -> None: ...
 
     def define_delay(
         self,
@@ -127,6 +130,33 @@ class DSOX3034AAdapter(OscilloscopeAdapter):
                 else None
             ),
         )
+
+    @contextmanager
+    def standalone_auto_trigger(self) -> Iterator[str]:
+        """Temporarily force AUTO sweep for a DSO-X-only acquisition.
+
+        ``:DIGitize`` obeys the oscilloscope's current trigger condition. In the
+        paired EXT recipe the real DUT trigger must remain authoritative, but a
+        standalone oscilloscope sample must not inherit a stale NORM trigger
+        condition from a previous front-panel session and then wait until the
+        VISA timeout. The original sweep is restored before the adapter session
+        is released.
+        """
+
+        original = str(self._driver.get_trigger_sweep()).strip().upper()
+        changed = original != "AUTO"
+        if changed:
+            self._driver.set_trigger_sweep("AUTO")
+        try:
+            yield original
+        finally:
+            if changed and original in {"AUTO", "NORM"}:
+                try:
+                    self._driver.set_trigger_sweep(original)
+                except Exception:
+                    # Disconnect follows the workflow. Do not hide the primary
+                    # acquisition result if restoring front-panel state fails.
+                    pass
 
     def acquire_delay(self) -> MeasurementResult:
         """Legacy measurement-only DELAY query."""

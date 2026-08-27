@@ -66,7 +66,7 @@ class FakeDSOX:
         )
 
 
-def test_ext_is_armed_before_dsox_and_imm_is_last():
+def test_ext_is_armed_before_dsox_acquisition_and_imm_is_last():
     calls = []
     sample = acquire_ext_imm_paired_sample(
         FakeFSW(calls),
@@ -76,9 +76,9 @@ def test_ext_is_armed_before_dsox_and_imm_is_last():
 
     assert calls == [
         ("fsw", "arm", "EXT"),
+        ("dsox", "waveform"),
         ("dsox", "delay"),
         ("dsox", "cycle"),
-        ("dsox", "waveform"),
         ("fsw", "read_ext", "EXT", 5.0),
         ("fsw", "acquire", "IMM", 5.0),
     ]

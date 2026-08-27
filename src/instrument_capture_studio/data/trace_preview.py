@@ -15,6 +15,22 @@ class TracePreview:
     y_label: str
 
 
+def _trace_title(path: Path, kind: str) -> str:
+    stem = path.stem.lower()
+    if kind == "spectrum":
+        if stem == "spectrum_ext":
+            return "Spectrum EXT"
+        if stem == "spectrum_imm":
+            return "Spectrum IMM"
+        return "Spectrum"
+
+    if stem == "waveform_delay":
+        return "Waveform DELAY"
+    if stem == "waveform_cycle":
+        return "Waveform CYCLE_COUNT"
+    return "Waveform"
+
+
 def load_trace_preview(path: Path, max_points: int = 5000) -> TracePreview:
     path = Path(path)
     if max_points < 2:
@@ -25,13 +41,13 @@ def load_trace_preview(path: Path, max_points: int = 5000) -> TracePreview:
         if {"frequency_hz", "amplitude_dbm"} <= keys:
             x = np.asarray(archive["frequency_hz"], dtype=np.float64) / 1e6
             y = np.asarray(archive["amplitude_dbm"], dtype=np.float64)
-            title = "Spectrum"
+            title = _trace_title(path, "spectrum")
             x_label = "Frequency (MHz)"
             y_label = "Amplitude (dBm)"
         elif {"time_s", "voltage_v"} <= keys:
             x = np.asarray(archive["time_s"], dtype=np.float64) * 1e6
             y = np.asarray(archive["voltage_v"], dtype=np.float64)
-            title = "Waveform"
+            title = _trace_title(path, "waveform")
             x_label = "Time (µs)"
             y_label = "Voltage (V)"
         else:

@@ -40,7 +40,7 @@
 
 2026-08-26：Windows GUI 使用默认配置完成真实 FSW + DSO-X 完整联合采集。
 
-Phase 4 的旧联合采集顺序只作为工程基线；Phase 8A 按真实 EXT ARM → DSO-X → EXT Read → IMM 的业务顺序完成正式 Recipe 对齐。
+Phase 4 的旧联合采集顺序只作为工程基线；Phase 8A 已按真实 EXT ARM → DSO-X DELAY 采集触发 → EXT Read → DSO-X CYCLE 第二次采集 → IMM 的业务顺序完成正式 Recipe 对齐。
 
 ---
 
@@ -50,7 +50,7 @@ Phase 4 的旧联合采集顺序只作为工程基线；Phase 8A 按真实 EXT A
 
 已完成 CSV / NPZ、metadata.json、job.json、标准目录、Job ID、仪表身份与配置快照、错误记录、重新加载和跨午夜目录等基础能力。
 
-Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格式。由于尚未开始正式数据采集，Phase 8A 将直接冻结新的正式数据 Schema v1，不再兼容旧调试数据格式。
+Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格式。由于尚未开始正式数据采集，Phase 8A 已直接建立新的正式数据 Schema v1，不兼容旧调试数据格式。
 
 ---
 
@@ -100,8 +100,6 @@ Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格�
 
 已完成命名模板、大规模 Batch / Job 摘要浏览、JSON 查看、Spectrum / Waveform 预览、日志持久化、Batch HTML 报告、jobs.csv、SVG 导出、固定频率连续采集等工程能力。
 
-Phase 8A 会把数据浏览、报告和导出切换到新的正式 Recipe / 数据格式。
-
 ---
 
 ## Phase 8 - 验收与商业发布
@@ -112,31 +110,63 @@ Phase 8A 会把数据浏览、报告和导出切换到新的正式 Recipe / 数�
 
 ### Phase 8A - 正式 Recipe + 正式数据 Schema v1
 
-状态：**IN PROGRESS**
+状态：**SOFTWARE COMPLETE / PAIRED HARDWARE ACCEPTED / SINGLE-INSTRUMENT ACCEPTANCE PENDING**
 
-目标：
+已完成：
 
-- `EXT联合 + IMM配对样本`
-- `IMM频谱单采`
-- `DSO-X示波器单采`
-- 正式数据格式只保留一套 Schema v1
-- 删除旧数据兼容分支
-- Data Browser / Trace Viewer / Report / Export / preflight 全部适配正式格式
-- 1 个频点 × 3 个配对样本 + 两种单仪表 Recipe 小规模真机验收
+- GUI 将“采集内容”和“执行方式”拆成独立维度。
+- Recipe A：`EXT联合 + IMM配对样本`。
+- Recipe B：`IMM频谱单采`，不要求 DSO-X 在线。
+- Recipe C：`DSO-X示波器单采`，不要求 FSW 在线。
+- DSO-X Waveform Channel 可选 CH1～CH4，默认 CH1 并自动记忆。
+- FSW Driver / Adapter 支持 ARM 与 wait/read 分离。
+- 正式 EXT+IMM 流程固定为：FSW EXT ARM → DSO-X DELAY 组独立采集并触发 FSW → FSW EXT wait/read → DSO-X CYCLE 组第二次独立采集 → FSW IMM → 保存。
+- DELAY 默认时基 `5e-7 s/div`，CYCLE 默认时基 `1e-4 s/div`，均可在 GUI 配置并记忆。
+- 正式数据格式从 Schema v1 起步，不承担旧调试数据兼容。
+- 配对 Job 明确保存 `spectrum_ext`、`spectrum_imm`、`waveform_delay`、`waveform_cycle` 四类 CSV/NPZ 数据。
+- Data Browser / Trace Viewer / HTML Report / 全量曲线导出 / Phase 8 preflight 已适配正式命名。
+- 2026-08-27：真实单次 `EXT联合 + IMM配对样本` 真机采集通过，四类数据文件均正确生成。
 
-Phase 8A 通过后，正式数据格式冻结，之后才开始正式批量采集。
+剩余 Phase 8A 真机验收：
+
+- `IMM频谱单采 × 1`
+- `DSO-X示波器单采 × 1`（至少 CH1；如需额外确认通道切换可再测 CH2）
+
+完成这两项后即可冻结正式 Schema v1，并关闭 Phase 8A。
 
 ### Phase 8B - 暂停与断点续采
 
-状态：**PENDING**
+状态：**SOFTWARE COMPLETE / HARDWARE ACCEPTANCE PENDING**
 
-完成暂停 / 继续、停止后继续、意外退出后继续，并保证恢复从下一个完整逻辑样本开始。
+软件已完成：
+
+- 批量采集过程中可请求暂停；只在完整逻辑样本边界进入 `PAUSED`。
+- 暂停时释放 FSW + DSO-X 会话；继续时重新建立会话。
+- 暂停后继续不会重复已成功逻辑样本。
+- 主动停止后的 Batch 可继续。
+- 程序异常退出留下 `running` Batch 时，可在重新启动后发现并继续。
+- 半个逻辑样本不会与新数据拼接；恢复时使用 `-resumeN` 新 Job ID 完整重采该逻辑样本。
+- GUI 提供“暂停采集 / 继续采集 / 继续上次任务”。
+- 每个正式 Batch 新增独立的冻结参数快照：`<output_root>/batch-configs/<batch_id>.json`。
+- 参数快照保存 FSW / DSO-X 完整运行参数、Recipe 和执行方式；重启续采使用原 Batch 快照，不依赖当前 GUI / QSettings 临时值。
+- 旧调试 Batch 没有冻结参数快照时不会被误识别为可续采正式任务。
+
+Phase 8B 真机验收计划：固定频率重复 10 次，依次验证“暂停→继续→停止→关闭程序→重新打开→继续上次任务”，最终补齐 10/10，并确认续采仍使用原始 FSW/DSO-X/Channel/时基参数。
 
 ### Phase 8C - 节点耗时与性能统计
 
-状态：**PENDING**
+状态：**IN PROGRESS**
 
-记录各采集节点和 Job 总耗时，并提供 Batch 平均值 / P95 / 最大值统计。
+已完成基础时间记录：
+
+- Job `started_at / finished_at / duration_ms`
+- 每个 Workflow Step `started_at / finished_at / duration_ms / state / error`
+- Batch Job 记录频率配置耗时
+
+待完成：
+
+- 明确覆盖 FSW 配置、EXT ARM、DSO-X DELAY、EXT wait/read、DSO-X CYCLE、IMM、Save Result 等关键节点。
+- Batch 汇总 avg / P95 / max。
 
 ### Phase 8D - 异常与恢复真机验收
 

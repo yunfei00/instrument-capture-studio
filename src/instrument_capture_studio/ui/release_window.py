@@ -22,6 +22,15 @@ class MainWindow(Phase8BWindow):
         super().__init__()
         self.statusBar().showMessage("就绪 · Phase 8D · Safe shutdown RC")
 
+    @property
+    def safe_close_pending(self) -> bool:
+        """Whether the user requested close while hardware was still active."""
+        return self._close_after_hardware_idle
+
+    @property
+    def connection_tests_active(self) -> int:
+        return self._connection_tests_active
+
     def _test_fsw_connection(self) -> None:
         before = self.fsw_status_label.text()
         super()._test_fsw_connection()

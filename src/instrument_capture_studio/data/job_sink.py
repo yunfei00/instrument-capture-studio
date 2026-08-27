@@ -25,7 +25,7 @@ Clock = Callable[[], datetime]
 
 
 class JobDirectoryResultSink:
-    """Persist Capture Jobs in schema-v1 or schema-v2 directory layouts."""
+    """Persist Capture Jobs using explicit recipe artifact names."""
 
     def __init__(self, root: Path, *, clock: Clock | None = None):
         self._root = Path(root)
@@ -55,7 +55,8 @@ class JobDirectoryResultSink:
         write_capture_metadata(layout.metadata_path, metadata)
         output_files = [str(layout.metadata_path)]
 
-        # Schema v1: preserve existing names exactly.
+        # Legacy internal debugging artifacts. Formal Phase-8 recipes do not
+        # use these generic names.
         if context.spectrum is not None:
             write_spectrum_csv(layout.spectrum_csv_path, context.spectrum)
             write_spectrum_npz(layout.spectrum_npz_path, context.spectrum)
@@ -63,7 +64,14 @@ class JobDirectoryResultSink:
                 (str(layout.spectrum_csv_path), str(layout.spectrum_npz_path))
             )
 
-        # Schema v2: EXT and IMM are first-class paired artifacts.
+        if context.waveform is not None:
+            write_waveform_csv(layout.waveform_csv_path, context.waveform)
+            write_waveform_npz(layout.waveform_npz_path, context.waveform)
+            output_files.extend(
+                (str(layout.waveform_csv_path), str(layout.waveform_npz_path))
+            )
+
+        # Formal recipe spectrum artifacts.
         if context.spectrum_ext is not None:
             write_spectrum_csv(layout.spectrum_ext_csv_path, context.spectrum_ext)
             write_spectrum_npz(layout.spectrum_ext_npz_path, context.spectrum_ext)
@@ -84,11 +92,26 @@ class JobDirectoryResultSink:
                 )
             )
 
-        if context.waveform is not None:
-            write_waveform_csv(layout.waveform_csv_path, context.waveform)
-            write_waveform_npz(layout.waveform_npz_path, context.waveform)
+        # The two oscilloscope acquisitions are separate physical captures and
+        # must never overwrite each other.
+        if context.waveform_delay is not None:
+            write_waveform_csv(layout.waveform_delay_csv_path, context.waveform_delay)
+            write_waveform_npz(layout.waveform_delay_npz_path, context.waveform_delay)
             output_files.extend(
-                (str(layout.waveform_csv_path), str(layout.waveform_npz_path))
+                (
+                    str(layout.waveform_delay_csv_path),
+                    str(layout.waveform_delay_npz_path),
+                )
+            )
+
+        if context.waveform_cycle is not None:
+            write_waveform_csv(layout.waveform_cycle_csv_path, context.waveform_cycle)
+            write_waveform_npz(layout.waveform_cycle_npz_path, context.waveform_cycle)
+            output_files.extend(
+                (
+                    str(layout.waveform_cycle_csv_path),
+                    str(layout.waveform_cycle_npz_path),
+                )
             )
 
         return tuple(output_files)

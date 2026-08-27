@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from contextlib import nullcontext
 from copy import deepcopy
 
 from instrument_capture_studio.core.models import CaptureResult
@@ -190,15 +191,51 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def run(self, job_id: str) -> CaptureResult:
-        return self._run_steps(
-            job_id,
-            self.steps,
-            {
-                "dsox_delay_group": self._acquire_delay_group,
-                "dsox_cycle_group": self._acquire_cycle_group,
-                "save_result": self._save,
-            },
-        )
+        # A standalone oscilloscope acquisition must not inherit a stale NORM
+        # trigger condition from an earlier front-panel/paired session. Without
+        # a trigger, :DIGitize remains armed and the following waveform query
+        # ends in a VISA timeout. The real DSO-X adapter temporarily switches
+        # to AUTO and restores the original sweep after both physical captures.
+        trigger_scope = getattr(self._oscilloscope, "standalone_auto_trigger", None)
+        manager = trigger_scope() if callable(trigger_scope) else nullcontext("UNKNOWN")
+        with manager as original_sweep:
+            previous_original = self._initial_metadata.get(
+                "standalone_trigger_sweep_original"
+            )
+            previous_used = self._initial_metadata.get(
+                "standalone_trigger_sweep_used"
+            )
+            self._initial_metadata["standalone_trigger_sweep_original"] = (
+                original_sweep
+            )
+            self._initial_metadata["standalone_trigger_sweep_used"] = "AUTO"
+            try:
+                return self._run_steps(
+                    job_id,
+                    self.steps,
+                    {
+                        "dsox_delay_group": self._acquire_delay_group,
+                        "dsox_cycle_group": self._acquire_cycle_group,
+                        "save_result": self._save,
+                    },
+                )
+            finally:
+                if previous_original is None:
+                    self._initial_metadata.pop(
+                        "standalone_trigger_sweep_original", None
+                    )
+                else:
+                    self._initial_metadata[
+                        "standalone_trigger_sweep_original"
+                    ] = previous_original
+                if previous_used is None:
+                    self._initial_metadata.pop(
+                        "standalone_trigger_sweep_used", None
+                    )
+                else:
+                    self._initial_metadata[
+                        "standalone_trigger_sweep_used"
+                    ] = previous_used
 
     def _acquire_delay_group(self, execution: StepExecutionContext) -> None:
         delay, waveform = self._oscilloscope.acquire_delay_group()

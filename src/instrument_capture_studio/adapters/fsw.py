@@ -157,9 +157,23 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
         return self._trace_to_result(trace, trigger_source)
 
     def arm_spectrum(self, trigger_source: str = "EXT") -> None:
-        """Configure and arm FSW, returning before the external trigger arrives."""
+        """Configure and arm FSW, returning before the external trigger arrives.
+
+        Newer platform drivers expose ``arm_trace_ascii`` directly. During the
+        Phase-8 transition some Windows machines can still have an older
+        instrument-automation-platform checkout. That driver already exposes
+        the lower-level primitives, so use them instead of crashing with a raw
+        AttributeError.
+        """
         self._apply_configuration(trigger_source_override=trigger_source)
-        self._driver.arm_trace_ascii(channel=self._config.channel)
+        config = self._config
+        if self._driver.supports("arm_trace_ascii"):
+            self._driver.arm_trace_ascii(channel=config.channel)
+            return
+
+        self._driver.set_continuous(False, channel=config.channel)
+        self._driver.set_trace_ascii()
+        self._driver.initiate(channel=config.channel)
 
     def read_armed_spectrum(
         self,
@@ -170,13 +184,72 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
     ) -> SpectrumResult:
         """Wait for and read the trace started by :meth:`arm_spectrum`."""
         config = self._config
-        trace = self._driver.wait_and_read_trace_ascii(
-            window=config.window,
-            trace=config.trace,
-            timeout_s=timeout_s,
-            cancel_check=cancel_check,
+        if self._driver.supports("wait_and_read_trace_ascii"):
+            trace = self._driver.wait_and_read_trace_ascii(
+                window=config.window,
+                trace=config.trace,
+                timeout_s=timeout_s,
+                cancel_check=cancel_check,
+            )
+            return self._trace_to_result(trace, trigger_source)
+
+        # Compatibility path for a platform checkout made before the split
+        # ARM / WAIT / READ convenience methods were added.
+        if timeout_s is None and cancel_check is None:
+            if not self._driver.wait_operation_complete():
+                raise RuntimeError("FSW measurement did not complete")
+        else:
+            self._driver.wait_operation_complete_bounded(
+                timeout_s,
+                cancel_check=cancel_check,
+            )
+
+        start_hz = float(self._driver.get_start_frequency())
+        stop_hz = float(self._driver.get_stop_frequency())
+        levels = tuple(
+            self._driver.read_trace_ascii(
+                window=config.window,
+                trace=config.trace,
+            )
         )
-        return self._trace_to_result(trace, trigger_source)
+        return self._raw_trace_to_result(
+            levels,
+            start_hz=start_hz,
+            stop_hz=stop_hz,
+            trigger_source=trigger_source,
+        )
+
+    def _raw_trace_to_result(
+        self,
+        levels: tuple[float, ...],
+        *,
+        start_hz: float,
+        stop_hz: float,
+        trigger_source: str | None,
+    ) -> SpectrumResult:
+        points = len(levels)
+        if points <= 1:
+            frequencies_hz = [start_hz] if points == 1 else []
+        else:
+            increment_hz = (stop_hz - start_hz) / (points - 1)
+            frequencies_hz = [
+                start_hz + index * increment_hz
+                for index in range(points)
+            ]
+        config = self._config
+        return SpectrumResult(
+            frequencies_hz=frequencies_hz,
+            amplitudes_dbm=list(levels),
+            metadata={
+                "start_hz": start_hz,
+                "stop_hz": stop_hz,
+                "channel": config.channel,
+                "window": config.window,
+                "trace": config.trace,
+                "trigger_source": trigger_source or config.trigger_source,
+                "transfer_format": "ASCII",
+            },
+        )
 
     def _trace_to_result(
         self,

@@ -1,4 +1,4 @@
-"""Export every saved spectrum/waveform trace from a Batch to SVG files."""
+"""Export every saved formal Recipe trace from a Batch to SVG files."""
 
 import csv
 import re
@@ -36,6 +36,14 @@ class _TraceTask:
     source: Path
 
 
+_FORMAL_TRACE_FILES = (
+    ("spectrum_ext", "spectrum_ext.npz"),
+    ("spectrum_imm", "spectrum_imm.npz"),
+    ("waveform_delay", "waveform_delay.npz"),
+    ("waveform_cycle", "waveform_cycle.npz"),
+)
+
+
 def export_all_batch_traces(
     manifest_path: Path,
     output_directory: Path | None = None,
@@ -43,11 +51,12 @@ def export_all_batch_traces(
     cancel_check: CancelCheck | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> BatchTraceExportResult:
-    """Export all available NPZ traces referenced by one Batch manifest.
+    """Export all formal Recipe NPZ traces referenced by one Batch manifest.
 
-    The export is intentionally separate from the lightweight HTML report.
-    Large experiments can therefore keep the report compact while still
-    allowing an explicit full export of every saved Spectrum/Waveform trace.
+    EXT+IMM paired samples can contain four independent traces per logical Job:
+    EXT spectrum, IMM spectrum, DELAY waveform, and CYCLE_COUNT waveform. Each
+    trace kind is exported to its own directory so training/debug data cannot
+    be confused later.
     """
 
     manifest_path = Path(manifest_path)
@@ -58,10 +67,8 @@ def export_all_batch_traces(
     destination = Path(
         output_directory or manifest_path.parent / "export" / "all_traces"
     )
-    spectrum_directory = destination / "spectrum"
-    waveform_directory = destination / "waveform"
-    spectrum_directory.mkdir(parents=True, exist_ok=True)
-    waveform_directory.mkdir(parents=True, exist_ok=True)
+    for kind, _filename in _FORMAL_TRACE_FILES:
+        (destination / kind).mkdir(parents=True, exist_ok=True)
 
     tasks = _collect_tasks(jobs, manifest_path.parent)
     rows: list[dict[str, object]] = []
@@ -74,9 +81,7 @@ def export_all_batch_traces(
             canceled = True
             break
 
-        target_directory = (
-            spectrum_directory if task.kind == "spectrum" else waveform_directory
-        )
+        target_directory = destination / task.kind
         filename = _export_filename(task)
         target = target_directory / filename
         error = ""
@@ -140,10 +145,7 @@ def _collect_tasks(jobs: list[object], batch_directory: Path) -> list[_TraceTask
         if not isinstance(output_files, list):
             continue
 
-        for kind, filename in (
-            ("spectrum", "spectrum.npz"),
-            ("waveform", "waveform.npz"),
-        ):
+        for kind, filename in _FORMAL_TRACE_FILES:
             source = _find_output_file(output_files, filename, batch_directory)
             if source is None or not source.exists():
                 continue
@@ -174,8 +176,6 @@ def _find_output_file(
         if path.is_absolute():
             return path
 
-        # Old or manually moved datasets can contain relative paths. Try the
-        # current process location first, then locations near the Batch.
         if path.exists():
             return path
         candidates = (

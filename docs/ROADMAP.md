@@ -155,18 +155,20 @@ Phase 8B 真机验收计划：固定频率重复 10 次，依次验证“暂停�
 
 ### Phase 8C - 节点耗时与性能统计
 
-状态：**IN PROGRESS**
+状态：**SOFTWARE COMPLETE / HARDWARE DATA REVIEW PENDING**
 
-已完成基础时间记录：
+已完成：
 
-- Job `started_at / finished_at / duration_ms`
-- 每个 Workflow Step `started_at / finished_at / duration_ms / state / error`
-- Batch Job 记录频率配置耗时
+- Job `started_at / finished_at / duration_ms`。
+- 每个 Workflow Step `started_at / finished_at / duration_ms / state / error`。
+- Batch Job 记录 FSW 频率配置耗时。
+- 正式配对流程可统计 `fsw_ext_arm`、`dsox_delay_group`、`fsw_ext_read`、`dsox_cycle_group`、`fsw_imm`、`save_result` 和完整 Job。
+- Batch 从持久化 Job 数据计算成功样本的 average / P95 / max。
+- HTML Batch Report 新增“节点耗时统计”。
+- 每份 Batch Report 同时生成 `timing.csv`，方便后续性能分析。
+- 失败 / timeout Job 保留原始时间数据用于诊断，但不混入正常性能统计。
 
-待完成：
-
-- 明确覆盖 FSW 配置、EXT ARM、DSO-X DELAY、EXT wait/read、DSO-X CYCLE、IMM、Save Result 等关键节点。
-- Batch 汇总 avg / P95 / max。
+待真机数据复核：在 Phase 8B 的 10 次小规模验收完成后检查 timing.csv 和 HTML 统计是否与实际采集时间量级一致。
 
 ### Phase 8D - 异常与恢复真机验收
 

@@ -30,7 +30,7 @@
 | --- | --- | --- |
 | FSW 真机连接与身份识别 | PASS | 已验证 |
 | DSO-X 真机连接与身份识别 | PASS | 已验证 |
-| 单次双仪表联合采集 | PASS | GUI 真机通过，属于旧流程工程验证 |
+| 单次双仪表联合采集 | PASS | GUI 真机通过 |
 | FSW bounded timeout | PASS | 真机验证 |
 | FSW 运行中取消 / ABORt | PASS | 真机验证 |
 | 频率循环批量采集 | PASS | 700–800 MHz / 5 MHz / 21 点 |
@@ -38,31 +38,33 @@
 | 参数自动保存 / 恢复 | PASS | 用户验收 |
 | 配置模板 | PASS | 用户验收 |
 | Spectrum / Waveform 曲线预览 | PASS | 用户验收 |
-| Batch HTML 报告 / jobs.csv | PASS | 旧格式能力验证，Phase 8A 需切换到新正式格式 |
-| 全量曲线导出 | PASS | 旧格式能力验证，Phase 8A 需切换到新正式格式 |
+| Batch HTML 报告 / jobs.csv | PASS | 已切换到正式 Recipe 命名 |
+| 全量曲线导出 | PASS | 已切换到正式 Recipe 命名 |
 | 固定频率连续采集 | PASS | 用户验收 |
 | Windows GUI 打包 | PASS | CI PyInstaller 通过 |
 | 主动停止采集 | PASS | CANCELED 后可再次正常采集 |
 
 ## B. v1.0 强制功能对齐：采集 Recipe
 
-GUI 的“采什么数据”和“执行多少次”必须是两个独立维度。
+GUI 的“采什么数据”和“执行多少次”是两个独立维度。
 
 ### B1. EXT 联合 + IMM 配对样本
 
 一个逻辑样本固定执行：
 
 1. 配置 FSW 当前中心频率 / Span / RBW / VBW。
-2. FSW 切换为 EXT，并先进入单次采集等待状态。
-3. 执行 DSO-X 采集，使硬件连接产生 EXT 触发。
-4. FSW 等待完成并读取 EXT Spectrum。
-5. FSW 切换为 IMM。
-6. 再采一份 IMM Spectrum。
-7. 保存 DSO-X + EXT Spectrum + IMM Spectrum + metadata。
+2. FSW 切换为 EXT，并先 ARM 进入单次采集等待状态。
+3. DSO-X 切换到 DELAY 组时基并执行第一次独立 DIGitize；该硬件事件触发 FSW EXT。
+4. 读取 DELAY 测量与本次 DELAY 波形。
+5. FSW 等待完成并读取 EXT Spectrum。
+6. DSO-X 切换到 CYCLE 组时基并执行第二次独立 DIGitize。
+7. 读取 CYCLE_COUNT 与第二次 CYCLE 波形。
+8. FSW 切换为 IMM，再采一份同频点 IMM Spectrum。
+9. 保存两份频谱、两份示波器波形、测量值与 metadata。
 
-FSW 必须先 ARM，再让示波器侧产生触发。
+FSW 必须先 ARM，再让示波器侧产生触发。第二次示波器采集必须发生在 EXT Spectrum 已读取之后。
 
-状态：**SOFTWARE COMPLETE / HARDWARE PENDING**
+状态：**PASS（单次真实配对样本已真机验证）**
 
 ### B2. IMM 频谱单采
 
@@ -79,16 +81,14 @@ FSW 必须先 ARM，再让示波器侧产生触发。
 只连接 / 使用 DSO-X，不要求 FSW 在线。
 
 - Waveform Channel GUI 明确可选 CH1–CH4。
-- 首次默认 CH1。
-- 后续保存用户上次选择。
+- 首次默认 CH1，后续保存用户上次选择。
+- 仍按 DELAY 组和 CYCLE 组执行两次独立示波器采集。
 
 状态：**SOFTWARE COMPLETE / HARDWARE PENDING**
 
 ## C. Phase 8A 正式数据契约
 
-由于没有需要兼容的正式历史数据，Phase 8A 不继续维护“旧 schema v1 + 新 schema v2”两套格式。
-
-目标是直接收敛为 **正式数据 Schema v1**，由 `recipe` 区分采集内容。
+由于没有需要兼容的正式历史数据，正式格式从 **Schema v1** 起步，由 `recipe` 区分采集内容。
 
 ### C1. EXT + IMM 配对样本
 
@@ -103,20 +103,22 @@ YYYY-MM-DD/
     ├── spectrum_ext.npz
     ├── spectrum_imm.csv
     ├── spectrum_imm.npz
-    ├── waveform.csv
-    └── waveform.npz
+    ├── waveform_delay.csv
+    ├── waveform_delay.npz
+    ├── waveform_cycle.csv
+    └── waveform_cycle.npz
 ```
 
-`metadata.json` 必须明确记录：
+`metadata.json` 明确记录：
 
 - `schema_version = 1`
 - `recipe = ext_imm_pair`
 - FSW / DSO-X 身份与配置快照
 - EXT / IMM 频谱摘要
-- DELAY / CYCLE_COUNT
-- Waveform Channel / 点数 / Sample Rate
+- DELAY / CYCLE_COUNT 测量值
+- 两次 Waveform 的 Channel / 点数 / Sample Rate / 时基
 - 当前频率、Batch / Job 关联信息
-- capture_complete
+- `capture_complete`
 
 ### C2. IMM 频谱单采
 
@@ -134,38 +136,41 @@ spectrum_imm.npz
 ```text
 job.json
 metadata.json
-waveform.csv
-waveform.npz
+waveform_delay.csv
+waveform_delay.npz
+waveform_cycle.csv
+waveform_cycle.npz
 ```
 
-`recipe = dsox_only`。
+`recipe = dsox_only`，DELAY / CYCLE_COUNT 测量值保存在 metadata。
 
-### C4. Phase 8A 收尾要求
+### C4. Phase 8A 软件收尾
 
-- 删除旧 `spectrum` / schema-v1 兼容字段和兼容读取逻辑。
-- 删除 schema-v1/schema-v2 双分支。
-- Data Browser 识别 `spectrum_ext` / `spectrum_imm`。
-- Trace Viewer 可以分别查看 EXT / IMM。
-- Batch HTML / CSV / 全量图片导出区分 EXT / IMM。
+- 正式 Recipe 不依赖旧 generic `spectrum / waveform` 文件命名。
+- 正式 Schema 统一为 v1。
+- Data Browser 识别 EXT / IMM / DELAY / CYCLE 四类数据。
+- Trace Viewer 可以分别查看四类 NPZ。
+- Batch HTML / CSV / 全量图片导出区分四类数据。
 - preflight 按 Recipe 检查应有文件，不再固定检查旧“6 文件”。
-- 所有新测试只围绕正式 Schema v1。
+- 所有正式新测试围绕 Schema v1。
 
-状态：**IN PROGRESS**
+状态：**SOFTWARE COMPLETE**
 
 ## D. Phase 8A 小规模真机验收
 
-正式大规模采集前先执行：
+当前：
 
-1. EXT + IMM 配对：1 个频点 × 3 个逻辑样本。
-2. IMM 单采：1 次。
-3. DSO-X 单采：CH1 1 次，再切换其他 Channel 1 次。
+- [x] EXT + IMM 配对：真实单次采集通过，四类数据文件均正确生成。
+- [ ] IMM 单采：1 次。
+- [ ] DSO-X 单采：CH1 1 次；可再用 CH2 验证通道切换。
 
 重点检查：
 
-- EXT 确实在 FSW ARM 后由示波器侧硬件事件触发。
-- 每个逻辑样本的 EXT / IMM / Waveform 没有串样。
-- metadata 中 Recipe、频率、Channel、仪表身份正确。
-- Job 文件数量和命名完全符合正式 Schema v1。
+- EXT 确实在 FSW ARM 后由第一次 DSO-X DELAY 组硬件事件触发。
+- 第二次 CYCLE 组采集不会干扰已经完成的 EXT 样本。
+- 每个逻辑样本的 EXT / IMM / DELAY / CYCLE 没有串样。
+- metadata 中 Recipe、频率、Channel、时基、仪表身份正确。
+- Job 文件数量和命名符合正式 Schema v1。
 - GUI 数据浏览和曲线查看正确。
 - preflight PASS。
 
@@ -175,51 +180,104 @@ waveform.npz
 
 ### E1. 暂停 / 继续
 
-新增“暂停采集”按钮。
+软件行为：
 
-- 暂停发生在一个逻辑样本的安全边界。
+- GUI 提供“暂停采集”。
+- 暂停只发生在一个完整逻辑样本的安全边界。
+- 进入 PAUSED 后释放 FSW / DSO-X 会话。
 - 已完成样本不重复。
-- GUI 显示 `PAUSED`。
-- 点击继续后从下一个未完成逻辑样本继续。
+- 点击继续后重新建立会话，从下一条未完成逻辑样本继续。
 
-状态：PENDING
+状态：**SOFTWARE COMPLETE / HARDWARE PENDING**
 
 ### E2. 停止后继续
 
-主动停止释放仪表会话，但 Batch 保留可恢复游标：
+主动停止释放仪表会话，Batch 保留：
 
 - 当前频率索引
 - 当前重复次数
-- 已完成逻辑样本数
+- 已完成逻辑样本集合
 - 未完成逻辑样本
+- `batch.json` checkpoint
 
-再次点击“继续上次任务”时重新连接仪表，从下一个未完成逻辑样本继续。
+再次点击“继续上次任务”时从未完成逻辑样本继续。
 
-状态：PENDING
+状态：**SOFTWARE COMPLETE / HARDWARE PENDING**
 
 ### E3. 意外退出后恢复
 
-启动 GUI 时扫描未完成 Batch。对于上次处于 `RUNNING / PAUSED / CANCELED` 且未完成的任务，提供“继续上次任务”。
+启动 GUI 时扫描 `RUNNING / PAUSED / CANCELED / FAILED` 且仍未完成的正式 Batch。
 
-如果程序在一个逻辑样本中途退出，该样本按未完成处理；恢复时重新执行整个逻辑样本，保证 EXT / IMM / DSO-X 配对一致。
+如果程序在一个逻辑样本中途退出，该样本按未完成处理；恢复时使用新的 `-resumeN` Job ID 重新执行整个逻辑样本，不会把半旧 EXT/IMM/DSO-X 数据和新数据拼接。
 
-状态：PENDING
+状态：**SOFTWARE COMPLETE / HARDWARE PENDING**
+
+### E4. 原任务参数冻结
+
+每个正式 Batch 保存独立参数快照：
+
+```text
+<output_root>/batch-configs/<batch_id>.json
+```
+
+快照包含：
+
+- Recipe
+- 原执行方式（frequency sweep / fixed repeat）
+- FSW VISA resource / backend / transport timeout / step timeout / center / span / RBW / VBW / trigger
+- DSO-X VISA resource / backend / transport timeout / DELAY source/edge / CYCLE source / Channel / DELAY 时基 / CYCLE 时基
+
+程序重启后续采以该快照为准，不读取用户此时临时修改后的 GUI / QSettings 作为任务参数。没有冻结参数快照的旧调试 Batch 不会作为正式可续采任务提供。
+
+状态：**SOFTWARE COMPLETE / HARDWARE PENDING**
+
+### E5. Phase 8B 真机验收动作
+
+固定频率重复 10 次：
+
+1. 正常完成 2～3 个样本后点击暂停。
+2. 确认只在完整样本边界进入 PAUSED。
+3. 点击继续并再完成若干样本。
+4. 点击停止，确认 Batch 仍可恢复。
+5. 关闭 GUI。
+6. 重新打开 GUI，并在点击“继续上次任务”前临时改动一个明显参数（例如 Channel 或时基）。
+7. 点击“继续上次任务”，确认界面恢复原 Batch 参数，实际采集也使用原参数。
+8. 最终补齐 10/10。
+9. 确认已成功样本没有重复；重启后的未完成样本目录使用 `-resume1`（后续再次恢复则递增）。
+10. 确认 `<output_root>/batch-configs/<batch_id>.json` 存在。
+
+状态：**PENDING**
 
 ## F. Phase 8C：节点耗时与性能统计
 
-每个采集节点记录：
+每个 Job 已记录：
 
 - `started_at`
 - `finished_at`
 - `duration_ms`
-- 状态
-- 错误（如有）
+- 每个 Workflow Step 的状态 / 错误 / duration
 
-至少覆盖：FSW 配置、FSW EXT ARM、DSO-X 采集、FSW EXT wait/read、FSW IMM 采集、DELAY、CYCLE_COUNT、Waveform、Save Result 和 Job 总耗时。
+正式配对流程的逻辑节点包括：
 
-Batch 汇总平均值、P95、最大值。
+- Batch 级 FSW 频率配置
+- `fsw_ext_arm`
+- `dsox_delay_group`
+- `fsw_ext_read`
+- `dsox_cycle_group`
+- `fsw_imm`
+- `save_result`
+- 完整 Job
 
-状态：PENDING
+Batch 报告从成功 Job 的持久化 `job.json` 汇总：
+
+- 样本数
+- average
+- P95
+- max
+
+同时生成 `timing.csv`；失败 / timeout Job 保留原始耗时用于诊断，但不混入正常性能分布。
+
+状态：**SOFTWARE COMPLETE / HARDWARE DATA REVIEW PENDING**
 
 ## G. Phase 8D：异常与恢复验收
 
@@ -245,7 +303,8 @@ Batch 汇总平均值、P95、最大值。
 6. EXE 下各 Recipe 所需仪表“测试连接”成功。
 7. EXE 下三种 Recipe 完成小规模真机验收。
 8. 暂停 / 继续、停止后继续、异常退出恢复完成验收。
-9. 新正式 Schema v1 的数据浏览、报告、导出、preflight 全部通过。
+9. 正式 Schema v1 的数据浏览、报告、导出、preflight 全部通过。
+10. Batch 报告可查看节点耗时 average / P95 / max，并导出 timing.csv。
 
 状态：PENDING
 

@@ -20,7 +20,19 @@ StepExecutor = Callable[[StepExecutionContext], None]
 
 
 class PairedCaptureWorkflow(CaptureWorkflow):
-    """Real training-sample workflow: FSW EXT + DSO-X + paired FSW IMM."""
+    """Real training sample: FSW EXT+IMM plus two DSO-X acquisitions.
+
+    The DSO-X data is intentionally split into two independent groups:
+
+    - DELAY group: default timebase 500 ns/div, one DIGitize + DELAY + waveform.
+    - CYCLE_COUNT group: default timebase 100 us/div, a second DIGitize + pulse
+      count + a second waveform.
+
+    FSW is armed before the DELAY group. That first DSO-X DIGitize is the
+    hardware event expected to trigger the FSW EXT acquisition. The EXT trace
+    is read before the second DSO-X acquisition so a second oscilloscope event
+    cannot accidentally become part of the external-trigger sample.
+    """
 
     def __init__(
         self,
@@ -46,12 +58,9 @@ class PairedCaptureWorkflow(CaptureWorkflow):
 
         self._steps = (
             CaptureStepDefinition("fsw_ext_arm"),
-            # acquire_waveform contains the DSO-X DIGitize call; keeping this
-            # directly after ARM makes it the hardware EXT trigger point.
-            CaptureStepDefinition("dsox_waveform"),
-            CaptureStepDefinition("dsox_delay"),
-            CaptureStepDefinition("dsox_cycle_count"),
+            CaptureStepDefinition("dsox_delay_group"),
             CaptureStepDefinition("fsw_ext_read", timeout_s=fsw_timeout_s),
+            CaptureStepDefinition("dsox_cycle_group"),
             CaptureStepDefinition("fsw_imm", timeout_s=fsw_timeout_s),
             CaptureStepDefinition("save_result"),
         )
@@ -71,10 +80,9 @@ class PairedCaptureWorkflow(CaptureWorkflow):
 
         raw_executors: dict[str, StepExecutor] = {
             "fsw_ext_arm": self._arm_ext,
-            "dsox_waveform": self._acquire_waveform,
-            "dsox_delay": self._acquire_delay,
-            "dsox_cycle_count": self._acquire_cycle_count,
+            "dsox_delay_group": self._acquire_delay_group,
             "fsw_ext_read": self._read_ext,
+            "dsox_cycle_group": self._acquire_cycle_group,
             "fsw_imm": self._acquire_imm,
             "save_result": self._save_result,
         }
@@ -92,7 +100,7 @@ class PairedCaptureWorkflow(CaptureWorkflow):
             cancel_check=self._cancel_check,
         )
         result = runner.run(job_id)
-        result.metadata["schema_version"] = 2
+        result.metadata["schema_version"] = 1
         result.metadata["recipe"] = "ext_imm_pair"
         result.metadata["capture_complete"] = self._context.is_paired_complete
         result.metadata["result_saved"] = bool(
@@ -133,21 +141,28 @@ class PairedCaptureWorkflow(CaptureWorkflow):
     def _arm_ext(self, execution: StepExecutionContext) -> None:
         self._spectrum_analyzer.arm_spectrum("EXT")
 
-    def _acquire_waveform(self, execution: StepExecutionContext) -> None:
-        self._context.waveform = self._oscilloscope.acquire_waveform()
-        self._context.metadata["waveform_channel"] = self._context.waveform.channel
-
-    def _acquire_delay(self, execution: StepExecutionContext) -> None:
-        self._context.delay = self._oscilloscope.acquire_delay()
-
-    def _acquire_cycle_count(self, execution: StepExecutionContext) -> None:
-        self._context.cycle_count = self._oscilloscope.acquire_cycle_count()
+    def _acquire_delay_group(self, execution: StepExecutionContext) -> None:
+        delay, waveform = self._oscilloscope.acquire_delay_group()
+        self._context.delay = delay
+        self._context.waveform_delay = waveform
+        self._context.metadata["waveform_channel"] = waveform.channel
+        self._context.metadata["delay_timebase_scale_s"] = waveform.metadata.get(
+            "timebase_scale_s"
+        )
 
     def _read_ext(self, execution: StepExecutionContext) -> None:
         self._context.spectrum_ext = self._spectrum_analyzer.read_armed_spectrum(
             timeout_s=execution.remaining_s,
             cancel_check=execution.cancel_check,
             trigger_source="EXT",
+        )
+
+    def _acquire_cycle_group(self, execution: StepExecutionContext) -> None:
+        cycle_count, waveform = self._oscilloscope.acquire_cycle_group()
+        self._context.cycle_count = cycle_count
+        self._context.waveform_cycle = waveform
+        self._context.metadata["cycle_timebase_scale_s"] = waveform.metadata.get(
+            "timebase_scale_s"
         )
 
     def _acquire_imm(self, execution: StepExecutionContext) -> None:
@@ -162,7 +177,10 @@ class PairedCaptureWorkflow(CaptureWorkflow):
     def _save_result(self, execution: StepExecutionContext) -> None:
         if not self._context.is_paired_complete:
             from instrument_capture_studio.core.exceptions import CaptureStepError
-            raise CaptureStepError("save_result", "paired capture context is incomplete")
+            raise CaptureStepError(
+                "save_result",
+                "paired capture requires EXT, IMM, DELAY waveform and CYCLE waveform",
+            )
         if self._current_job_id is None:
             raise RuntimeError("current job id is not set")
         self._output_files = list(

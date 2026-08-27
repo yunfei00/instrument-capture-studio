@@ -58,4 +58,11 @@ class CaptureContext:
 
     @property
     def capture_complete(self) -> bool:
+        recipe = str(self.metadata.get("recipe", "")).lower()
+        if recipe == "ext_imm_pair":
+            return self.is_paired_complete
+        if recipe == "imm_spectrum_only":
+            return self.spectrum is not None
+        if recipe == "dsox_only":
+            return self.waveform is not None
         return self.is_paired_complete if self.schema_version == 2 else self.is_complete

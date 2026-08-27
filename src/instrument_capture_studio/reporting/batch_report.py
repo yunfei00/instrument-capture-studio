@@ -1,4 +1,4 @@
-"""Generate lightweight offline HTML reports for large frequency-sweep batches."""
+"""Generate lightweight offline HTML reports for formal Recipe batches."""
 
 import csv
 from dataclasses import dataclass
@@ -18,15 +18,24 @@ class BatchReportResult:
     asset_count: int
 
 
+_TRACE_COLUMNS = (
+    ("spectrum_ext.npz", "spectrum-ext", "查看 EXT 频谱"),
+    ("spectrum_imm.npz", "spectrum-imm", "查看 IMM 频谱"),
+    ("waveform_delay.npz", "waveform-delay", "查看 DELAY 波形"),
+    ("waveform_cycle.npz", "waveform-cycle", "查看 CYCLE 波形"),
+)
+
+
 def export_batch_report(
     manifest_path: Path,
     output_directory: Path | None = None,
 ) -> BatchReportResult:
-    """Create an HTML summary plus representative spectrum/waveform SVGs.
+    """Create an HTML summary plus representative formal Recipe traces.
 
-    One representative successful Job is plotted for each frequency point. The
-    full Job list is preserved in jobs.csv so very large batches remain easy to
-    inspect without producing thousands of heavy inline plots.
+    One representative successful Job is plotted for each frequency point. A
+    paired training Job can contribute four traces: EXT spectrum, IMM spectrum,
+    DELAY waveform and CYCLE_COUNT waveform. The full Job list stays in jobs.csv
+    so large batches remain lightweight.
     """
 
     manifest_path = Path(manifest_path)
@@ -59,38 +68,22 @@ def export_batch_report(
             continue
         record = representatives.get(frequency_hz)
         successful_count = _successful_count(jobs, frequency_hz)
-
-        spectrum_cell = "—"
-        waveform_cell = "—"
         representative_job = "—"
+        cells = {key: "—" for _filename, key, _label in _TRACE_COLUMNS}
 
         if record is not None:
             representative_job = escape(str(record.get("job_id") or ""))
-            spectrum_path = _find_output_file(record, "spectrum.npz")
-            waveform_path = _find_output_file(record, "waveform.npz")
-
-            if spectrum_path is not None and spectrum_path.exists():
-                preview = load_trace_preview(spectrum_path)
-                filename = f"f{index:03d}-spectrum.svg"
-                (assets / filename).write_text(
+            for filename, key, label in _TRACE_COLUMNS:
+                trace_path = _find_output_file(record, filename)
+                if trace_path is None or not trace_path.exists():
+                    continue
+                preview = load_trace_preview(trace_path)
+                asset_name = f"f{index:03d}-{key}.svg"
+                (assets / asset_name).write_text(
                     render_trace_svg(preview),
                     encoding="utf-8",
                 )
-                spectrum_cell = (
-                    f'<a href="assets/{filename}">查看频谱</a>'
-                )
-                asset_count += 1
-
-            if waveform_path is not None and waveform_path.exists():
-                preview = load_trace_preview(waveform_path)
-                filename = f"f{index:03d}-waveform.svg"
-                (assets / filename).write_text(
-                    render_trace_svg(preview),
-                    encoding="utf-8",
-                )
-                waveform_cell = (
-                    f'<a href="assets/{filename}">查看波形</a>'
-                )
+                cells[key] = f'<a href="assets/{asset_name}">{label}</a>'
                 asset_count += 1
 
         frequency_rows.append(
@@ -99,8 +92,10 @@ def export_batch_report(
             f"<td>{frequency_hz / 1e6:g}</td>"
             f"<td>{successful_count}</td>"
             f"<td>{representative_job}</td>"
-            f"<td>{spectrum_cell}</td>"
-            f"<td>{waveform_cell}</td>"
+            f"<td>{cells['spectrum-ext']}</td>"
+            f"<td>{cells['spectrum-imm']}</td>"
+            f"<td>{cells['waveform-delay']}</td>"
+            f"<td>{cells['waveform-cycle']}</td>"
             "</tr>"
         )
 
@@ -298,12 +293,13 @@ a{{color:#175cd3;text-decoration:none}}
 <div class="kpi"><div class="value">{failed}</div><div>失败 Job</div></div>
 <div class="kpi"><div class="value">{recovery_count}</div><div>自动恢复事件</div></div>
 <p>频率：{plan_value('start_hz', 1e6)}–{plan_value('stop_hz', 1e6)} MHz，步长 {plan_value('step_hz', 1e6)} MHz，Span {plan_value('span_hz', 1e6)} MHz，每频点 {escape(str(plan.get('captures_per_frequency') or '—'))} 次。</p>
+<p>正式配对样本：FSW EXT + FSW IMM + DSO-X DELAY 波形 + DSO-X CYCLE_COUNT 波形。</p>
 <p><a href="{escape(jobs_csv_name)}">下载完整 Job 明细 CSV</a></p>
 </div>
 <div class="card">
 <h2>频点结果</h2>
 <table>
-<thead><tr><th>#</th><th>中心频率 (MHz)</th><th>成功次数</th><th>代表 Job</th><th>频谱</th><th>波形</th></tr></thead>
+<thead><tr><th>#</th><th>中心频率 (MHz)</th><th>成功次数</th><th>代表 Job</th><th>EXT</th><th>IMM</th><th>DELAY 波形</th><th>CYCLE 波形</th></tr></thead>
 <tbody>
 {frequency_rows}
 </tbody>

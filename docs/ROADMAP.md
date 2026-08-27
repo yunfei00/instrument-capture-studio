@@ -36,71 +36,21 @@
 
 状态：**COMPLETE**
 
-完整流程：
-
-```text
-FSW Spectrum
-↓
-DSO-X DELAY
-↓
-DSO-X CYCLE_COUNT
-↓
-DSO-X Waveform
-↓
-Save Result
-```
-
-已完成：
-
-- 统一 Capture Job
-- Step / Job 状态
-- 超时
-- 协作式取消
-- 重试与失败处理
-- CLI 联合采集入口
-- GUI 联合采集入口
-- FSW timeout 真机验证
-- FSW runtime cancel 真机验证
-- DSO-X 3034A 真机参与联合采集验证
-- FSW + DSO-X 双仪表完整联合采集验证
+已完成统一 Capture Job、Step / Job 状态、超时、协作式取消、重试与失败处理、CLI / GUI 联合采集入口，以及 DSO-X + FSW 双仪表真机联合采集验证。
 
 2026-08-26：Windows GUI 使用默认配置完成真实 FSW + DSO-X 完整联合采集。
+
+Phase 4 的旧联合采集顺序只作为工程基线；Phase 8A 按真实 EXT ARM → DSO-X → EXT Read → IMM 的业务顺序完成正式 Recipe 对齐。
 
 ---
 
 ## Phase 5 - 数据管理
 
-状态：**COMPLETE**
+状态：**COMPLETE（工程基线）**
 
-已完成：
+已完成 CSV / NPZ、metadata.json、job.json、标准目录、Job ID、仪表身份与配置快照、错误记录、重新加载和跨午夜目录等基础能力。
 
-- CSV / NPZ
-- metadata.json
-- job.json Job Manifest
-- 标准目录与文件命名
-- Job ID
-- 仪表身份与配置快照
-- Job / Step 时间与错误记录
-- 成功 / 失败 / 取消持久化
-- 连接阶段失败记录
-- Spectrum / Waveform 重新加载
-- CaptureContext 离线恢复
-- CLI 真实磁盘保存
-- 跨午夜 Job 单一目录
-- 双仪表真机完整数据目录验证
-
-标准 Job：
-
-```text
-YYYY-MM-DD/
-└── job_id/
-    ├── job.json
-    ├── metadata.json
-    ├── spectrum.csv
-    ├── spectrum.npz
-    ├── waveform.csv
-    └── waveform.npz
-```
+Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格式。由于尚未开始正式数据采集，Phase 8A 将直接冻结新的正式数据 Schema v1，不再兼容旧调试数据格式。
 
 ---
 
@@ -108,21 +58,7 @@ YYYY-MM-DD/
 
 状态：**BASELINE COMPLETE / HARDWARE ACCEPTED**
 
-已完成：
-
-- Windows PySide6 GUI
-- FSW / DSO-X 连接状态与连接测试
-- VISA 地址和参数配置
-- 开始 / 停止采集
-- 实时 Capture Step 进度
-- Job 状态
-- 日志窗口
-- 数据浏览
-- Windows EXE 启动验证
-- 两台仪表真机连接测试
-- GUI 双仪表完整联合采集验证
-
-结果：用户不需要操作命令行即可完成连接、采集、停止、结果保存与浏览。
+已完成 Windows PySide6 GUI、两台仪表连接测试、VISA 与参数配置、开始 / 停止、实时进度、Job 状态、日志、数据浏览、Windows EXE 启动验证和 GUI 双仪表完整联合采集验证。
 
 ---
 
@@ -134,53 +70,21 @@ YYYY-MM-DD/
 
 状态：**COMPLETE**
 
-- 自动保存 / 恢复 FSW VISA、Center、Span、RBW、VBW、Trigger、Timeout
-- 自动保存 / 恢复 DSO-X VISA、DELAY、CYCLE_COUNT、Waveform Channel
-- 自动保存 / 恢复输出目录
-- 自动保存 / 恢复批量扫频参数
-- 自动保存 / 恢复固定频率连续采集次数
+已完成 FSW / DSO-X / 输出目录 / 批量参数 / 固定频率连续参数的自动保存与恢复。
 
 ### Phase 7B - 断线检测与自动恢复
 
 状态：**SOFTWARE COMPLETE / PHYSICAL CABLE ACCEPTANCE IN PHASE 8**
 
-已完成：
-
-- InstrumentConnectionError / InstrumentCommunicationError 分类
-- 当前 Job 失败信息持久化
-- 释放旧 VISA / Driver / Adapter
-- 默认等待 2 秒
-- 创建全新会话
-- 默认最多 4 次完整 Capture 尝试
-- retry Job ID 不覆盖历史故障证据
-- GUI `RECONNECTING` 状态
-- Trigger / Measurement Timeout 不误判为掉线
-- Fault Injection 验证通信异常后重连和重试
-- InstrumentBusyError 独立分类，不进入自动重连
-
-FSW / DSO-X 真实拔线、插回和最大重试失败放在 Phase 8 最终硬件验收。
+已完成连接 / 通信异常分类、失败记录、旧会话释放、自动重新建立 VISA 会话、有限次数完整 Job 重试、GUI `RECONNECTING`、Trigger Timeout 与掉线区分以及 Fault Injection 验证。
 
 ### Phase 7C - 频率循环 / 批量联合采集
 
-状态：**COMPLETE + LARGE REAL-HARDWARE RUN PASSED**
+状态：**COMPLETE + LARGE DEBUG HARDWARE RUN PASSED**
 
-已完成：
+已完成 FrequencySweepPlan、Batch Runner、Batch 内长连接、动态中心频率、独立 Job、batch.json、进度、安全停止和批量自动恢复。
 
-- FrequencySweepPlan
-- 起始 / 结束 / 步长 / Span / 每频点次数
-- Batch Capture Runner
-- Batch 内 FSW + DSO-X 长连接
-- FSW 动态中心频率切换
-- 每频点完整联合采集
-- 每次独立 Job ID 与 6 个标准文件
-- Batch ID / batch.json
-- 当前频率、当前次数、总进度
-- 中途安全停止
-- 批量运行中连接/通信异常自动恢复
-- GUI 单次 / 频率循环模式
-- 批量参数自动保存 / 恢复
-
-2026-08-26 真机大规模验证：
+2026-08-26 调试稳定性验证：
 
 - 700 MHz → 800 MHz
 - 步长 5 MHz
@@ -188,31 +92,15 @@ FSW / DSO-X 真实拔线、插回和最大重试失败放在 Phase 8 最终硬�
 - 每频点 100 次
 - 总计 2100 次完整联合采集完成
 
+这 2100 次数据仅作为开发阶段稳定性验证，可全部删除，**不属于正式数据集，也不要求数据格式兼容**。
+
 ### Phase 7D - 产品增强
 
-状态：**COMPLETE FOR v1.0.0**
+状态：**COMPLETE FOR ENGINEERING BASELINE**
 
-已完成：
+已完成命名模板、大规模 Batch / Job 摘要浏览、JSON 查看、Spectrum / Waveform 预览、日志持久化、Batch HTML 报告、jobs.csv、SVG 导出、固定频率连续采集等工程能力。
 
-- 命名实验配置模板保存 / 加载 / 删除
-- 模板保存 VISA、FSW、DSO-X、采集模式、扫频与输出目录
-- 大规模 Batch / Job 摘要浏览
-- GUI 限制最近 Batch / Job，避免数万文件一次性渲染
-- 双击 Job 打开目录
-- JSON 结构化查看器
-- Spectrum / Waveform NPZ 曲线预览
-- 大数组预览自动抽样
-- 桌面会话日志持久化
-- Batch HTML 报告
-- 完整 jobs.csv
-- 每频点代表性 Spectrum / Waveform SVG
-- 全量 Batch Spectrum / Waveform SVG 批量导出
-- 固定频率连续采集模式
-- 全量转图后台执行，避免阻塞 GUI
-
-PDF 报告不作为 v1.0.0 强制项，HTML + SVG + CSV 已满足第一版报告与可追溯需求。
-
-Phase 7 用户功能验收已通过。
+Phase 8A 会把数据浏览、报告和导出切换到新的正式 Recipe / 数据格式。
 
 ---
 
@@ -222,30 +110,45 @@ Phase 7 用户功能验收已通过。
 
 当前版本：`0.9.0rc1`
 
-已具备：
+### Phase 8A - 正式 Recipe + 正式数据 Schema v1
 
-- 2100 次真实批量稳定采集基线
-- Windows PyInstaller CI 构建
-- Tag `v*` 自动创建 GitHub Release
-- 产品 GUI offscreen smoke test
-- Phase 8 runtime self-check
-- Batch 数据完整性 preflight
-- 用户指南
-- Windows 部署 / 发布指南
-- 最终验收清单
+状态：**IN PROGRESS**
 
-剩余强制验收：
+目标：
 
-1. 采集中主动停止后的安全退出与再次采集
-2. FSW 真实物理断线 → 插回 → 自动恢复
-3. DSO-X 真实物理断线 → 插回 → 自动恢复
-4. 仪表保持断开直到最大重试次数耗尽
-5. Trigger Timeout 在 GUI / Batch 层不误触发重连
-6. 采集中关闭 GUI 的安全退出
-7. 对真实 2100 次数据执行 `phase8_preflight.py` 并 PASS
-8. 正式 Release Candidate EXE 下完成连接与一次完整联合采集
+- `EXT联合 + IMM配对样本`
+- `IMM频谱单采`
+- `DSO-X示波器单采`
+- 正式数据格式只保留一套 Schema v1
+- 删除旧数据兼容分支
+- Data Browser / Trace Viewer / Report / Export / preflight 全部适配正式格式
+- 1 个频点 × 3 个配对样本 + 两种单仪表 Recipe 小规模真机验收
 
-详细步骤见 `docs/PHASE8_ACCEPTANCE.md`。
+Phase 8A 通过后，正式数据格式冻结，之后才开始正式批量采集。
+
+### Phase 8B - 暂停与断点续采
+
+状态：**PENDING**
+
+完成暂停 / 继续、停止后继续、意外退出后继续，并保证恢复从下一个完整逻辑样本开始。
+
+### Phase 8C - 节点耗时与性能统计
+
+状态：**PENDING**
+
+记录各采集节点和 Job 总耗时，并提供 Batch 平均值 / P95 / 最大值统计。
+
+### Phase 8D - 异常与恢复真机验收
+
+状态：**PENDING**
+
+完成 FSW / DSO-X 物理断线恢复、最大重试失败、Trigger Timeout 不误重连、采集中关闭 GUI 的安全退出与恢复。
+
+### Phase 8E - Release Candidate
+
+状态：**PENDING**
+
+完成新正式格式 preflight、Windows EXE 真机验收、三种 Recipe 验收以及最终发布检查。
 
 全部通过后：
 
@@ -253,6 +156,8 @@ Phase 7 用户功能验收已通过。
 - Phase 8 标记 COMPLETE
 - 创建 `v1.0.0` Tag
 - GitHub Actions 自动生成 Windows Release
+
+详细步骤见 `docs/PHASE8_ACCEPTANCE.md`。
 
 ---
 

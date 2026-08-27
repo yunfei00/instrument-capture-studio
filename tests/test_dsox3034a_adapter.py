@@ -22,6 +22,8 @@ class FakeDSOX3034ADriver:
         self.last_delay_sources = None
         self.last_pulse_source = None
         self.last_waveform_channel = None
+        self.timebase_scales = []
+        self.waveform_acquisitions = 0
 
     @property
     def is_connected(self) -> bool:
@@ -38,18 +40,19 @@ class FakeDSOX3034ADriver:
     def connect(self):
         self._connected = True
         self._state = FakeState("ready")
-
         self._identity = SimpleNamespace(
             model="DSO-X 3034A",
             serial_number="MY12345678",
             firmware="02.50.2020010100",
         )
-
         return self._identity
 
     def disconnect(self) -> None:
         self._connected = False
         self._state = FakeState("disconnected")
+
+    def set_timebase_scale(self, scale: float) -> None:
+        self.timebase_scales.append(scale)
 
     def define_delay(
         self,
@@ -72,7 +75,6 @@ class FakeDSOX3034ADriver:
             source1,
             source2,
         )
-
         return 1.25e-6
 
     def measure_n_pulses(
@@ -87,23 +89,12 @@ class FakeDSOX3034ADriver:
         channel: int,
     ):
         self.last_waveform_channel = channel
-
+        self.waveform_acquisitions += 1
+        base = float(self.waveform_acquisitions)
         return SimpleNamespace(
-            raw_samples=(
-                100,
-                200,
-                300,
-            ),
-            time_seconds=(
-                0.0,
-                1e-6,
-                2e-6,
-            ),
-            voltage_volts=(
-                0.1,
-                0.2,
-                0.3,
-            ),
+            raw_samples=(100, 200, 300),
+            time_seconds=(0.0, 1e-6, 2e-6),
+            voltage_volts=(base, base + 0.1, base + 0.2),
             preamble=SimpleNamespace(
                 x_increment=1e-6,
                 acquisition_type=2,
@@ -115,38 +106,27 @@ def make_adapter(
     config: DSOX3034AConfig | None = None,
 ):
     driver = FakeDSOX3034ADriver()
-
     adapter = DSOX3034AAdapter(
         address="TCPIP0::192.168.1.10::inst0::INSTR",
         driver=driver,
         config=config,
     )
-
     return adapter, driver
 
 
 def test_connect_status_and_disconnect():
     adapter, driver = make_adapter()
-
     assert adapter.is_connected() is False
-
     adapter.connect()
-
     assert adapter.is_connected() is True
-
     status = adapter.get_status()
-
     assert status.state == InstrumentState.CONNECTED
     assert status.model == "DSO-X 3034A"
     assert status.serial_number == "MY12345678"
     assert status.firmware_version == "02.50.2020010100"
-
     adapter.disconnect()
-
     assert adapter.is_connected() is False
-
     status = adapter.get_status()
-
     assert status.state == InstrumentState.DISCONNECTED
 
 
@@ -157,31 +137,26 @@ def test_acquire_delay_maps_business_configuration():
         delay_edge1="+1",
         delay_edge2="-1",
     )
-
     adapter, driver = make_adapter(config)
-
     result = adapter.acquire_delay()
-
     assert driver.last_delay_definition == (
         "+1",
         "-1",
         None,
     )
-
     assert driver.last_delay_sources == (
         "CHANnel1",
         "CHANnel2",
     )
-
     assert result.measurement == "DELAY"
     assert result.value == 1.25e-6
     assert result.unit == "s"
-
     assert result.metadata == {
         "source1": "CHANnel1",
         "source2": "CHANnel2",
         "edge1": "+1",
         "edge2": "-1",
+        "timebase_scale_s": 5e-7,
     }
 
 
@@ -189,54 +164,55 @@ def test_acquire_cycle_count_maps_to_negative_pulses():
     config = DSOX3034AConfig(
         cycle_count_source="CHANnel3",
     )
-
     adapter, driver = make_adapter(config)
-
     result = adapter.acquire_cycle_count()
-
     assert driver.last_pulse_source == "CHANnel3"
-
     assert result.measurement == "CYCLE_COUNT"
     assert result.value == 12.0
     assert result.unit == "count"
-
     assert result.metadata["source"] == "CHANnel3"
-    assert (
-        result.metadata["backend_measurement"]
-        == "NPUlSes"
-    )
+    assert result.metadata["backend_measurement"] == "NPUlSes"
+    assert result.metadata["timebase_scale_s"] == 1e-4
 
 
 def test_acquire_waveform_converts_driver_result():
     config = DSOX3034AConfig(
         waveform_channel=2,
     )
-
     adapter, driver = make_adapter(config)
-
     result = adapter.acquire_waveform()
-
     assert driver.last_waveform_channel == 2
-
     assert result.channel == "CH2"
-
-    assert result.time_s == [
-        0.0,
-        1e-6,
-        2e-6,
-    ]
-
-    assert result.voltage_v == [
-        0.1,
-        0.2,
-        0.3,
-    ]
-
+    assert result.time_s == [0.0, 1e-6, 2e-6]
+    assert result.voltage_v == [1.0, 1.1, 1.2]
     assert result.points == 3
     assert result.sample_rate_hz == 1e6
-
     assert result.metadata["raw_points"] == 3
     assert result.metadata["acquisition_type"] == 2
+    assert result.metadata["sample_kind"] == "generic"
+
+
+def test_delay_and_cycle_groups_are_two_physical_waveform_acquisitions():
+    config = DSOX3034AConfig(
+        waveform_channel=1,
+        delay_timebase_scale_s=5e-7,
+        cycle_timebase_scale_s=1e-4,
+    )
+    adapter, driver = make_adapter(config)
+
+    delay, delay_waveform = adapter.acquire_delay_group()
+    cycle, cycle_waveform = adapter.acquire_cycle_group()
+
+    assert driver.timebase_scales == [5e-7, 1e-4]
+    assert driver.waveform_acquisitions == 2
+    assert delay.measurement == "DELAY"
+    assert cycle.measurement == "CYCLE_COUNT"
+    assert delay_waveform.voltage_v == [1.0, 1.1, 1.2]
+    assert cycle_waveform.voltage_v == [2.0, 2.1, 2.2]
+    assert delay_waveform.metadata["sample_kind"] == "delay"
+    assert delay_waveform.metadata["timebase_scale_s"] == 5e-7
+    assert cycle_waveform.metadata["sample_kind"] == "cycle_count"
+    assert cycle_waveform.metadata["timebase_scale_s"] == 1e-4
 
 
 def test_get_configuration_returns_snapshot():
@@ -247,16 +223,11 @@ def test_get_configuration_returns_snapshot():
         delay_edge2="-1",
         cycle_count_source="CHANnel3",
         waveform_channel=2,
+        delay_timebase_scale_s=5e-7,
+        cycle_timebase_scale_s=1e-4,
     )
-
-    adapter, _ = make_adapter(
-        config
-    )
-
-    snapshot = (
-        adapter.get_configuration()
-    )
-
+    adapter, _ = make_adapter(config)
+    snapshot = adapter.get_configuration()
     assert snapshot == {
         "delay_source1": "CHANnel1",
         "delay_source2": "CHANnel2",
@@ -264,15 +235,8 @@ def test_get_configuration_returns_snapshot():
         "delay_edge2": "-1",
         "cycle_count_source": "CHANnel3",
         "waveform_channel": 2,
+        "delay_timebase_scale_s": 5e-7,
+        "cycle_timebase_scale_s": 1e-4,
     }
-
-    snapshot[
-        "waveform_channel"
-    ] = 4
-
-    assert (
-        adapter.get_configuration()[
-            "waveform_channel"
-        ]
-        == 2
-    )
+    snapshot["waveform_channel"] = 4
+    assert adapter.get_configuration()["waveform_channel"] == 2

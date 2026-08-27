@@ -39,22 +39,47 @@ class FakeDSOX:
     def __init__(self, calls):
         self.calls = calls
 
-    def acquire_waveform(self):
-        self.calls.append(("dsox", "waveform"))
-        return WaveformResult(
-            channel="CH1",
-            time_s=[0.0],
-            voltage_v=[0.1],
-            sample_rate_hz=1e9,
+    def acquire_delay_group(self):
+        self.calls.append(("dsox", "delay_group"))
+        return (
+            MeasurementResult(
+                "DELAY",
+                1e-6,
+                "s",
+                {"timebase_scale_s": 5e-7},
+            ),
+            WaveformResult(
+                channel="CH1",
+                time_s=[0.0],
+                voltage_v=[0.1],
+                sample_rate_hz=1e9,
+                metadata={
+                    "sample_kind": "delay",
+                    "timebase_scale_s": 5e-7,
+                },
+            ),
         )
 
-    def acquire_delay(self):
-        self.calls.append(("dsox", "delay"))
-        return MeasurementResult("DELAY", 1e-6, "s")
-
-    def acquire_cycle_count(self):
-        self.calls.append(("dsox", "cycle"))
-        return MeasurementResult("CYCLE_COUNT", 2.0, "count")
+    def acquire_cycle_group(self):
+        self.calls.append(("dsox", "cycle_group"))
+        return (
+            MeasurementResult(
+                "CYCLE_COUNT",
+                2.0,
+                "count",
+                {"timebase_scale_s": 1e-4},
+            ),
+            WaveformResult(
+                channel="CH1",
+                time_s=[0.0],
+                voltage_v=[0.2],
+                sample_rate_hz=1e6,
+                metadata={
+                    "sample_kind": "cycle_count",
+                    "timebase_scale_s": 1e-4,
+                },
+            ),
+        )
 
 
 class FakeSink:
@@ -63,10 +88,16 @@ class FakeSink:
 
     def save(self, job_id, context):
         self.context = context
-        return ("metadata.json", "spectrum_ext.npz", "spectrum_imm.npz", "waveform.npz")
+        return (
+            "metadata.json",
+            "spectrum_ext.npz",
+            "spectrum_imm.npz",
+            "waveform_delay.npz",
+            "waveform_cycle.npz",
+        )
 
 
-def test_paired_workflow_runs_real_order_and_records_step_times():
+def test_paired_workflow_runs_real_order_and_records_two_dsox_groups():
     calls = []
     sink = FakeSink()
     workflow = PairedCaptureWorkflow(
@@ -81,23 +112,23 @@ def test_paired_workflow_runs_real_order_and_records_step_times():
     assert result.state is JobState.SUCCEEDED
     assert calls == [
         ("fsw", "arm", "EXT"),
-        ("dsox", "waveform"),
-        ("dsox", "delay"),
-        ("dsox", "cycle"),
+        ("dsox", "delay_group"),
         ("fsw", "read", "EXT"),
+        ("dsox", "cycle_group"),
         ("fsw", "acquire", "IMM"),
     ]
-    assert result.metadata["schema_version"] == 2
+    assert result.metadata["schema_version"] == 1
     assert result.metadata["capture_complete"] is True
     assert sink.context.is_paired_complete is True
+    assert sink.context.waveform_delay.metadata["sample_kind"] == "delay"
+    assert sink.context.waveform_cycle.metadata["sample_kind"] == "cycle_count"
     assert sink.context.metadata["waveform_channel"] == "CH1"
 
     assert [step.name for step in result.steps] == [
         "fsw_ext_arm",
-        "dsox_waveform",
-        "dsox_delay",
-        "dsox_cycle_count",
+        "dsox_delay_group",
         "fsw_ext_read",
+        "dsox_cycle_group",
         "fsw_imm",
         "save_result",
     ]

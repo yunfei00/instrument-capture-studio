@@ -5,7 +5,7 @@ import sys
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
-from instrument_capture_studio.ui.phase8_window import MainWindow
+from instrument_capture_studio.ui.phase8b_window import MainWindow
 
 
 _RELEASE_LABEL = "v0.9 · RC1"
@@ -29,7 +29,7 @@ def create_main_window() -> MainWindow:
     if badge is not None:
         badge.setText(_RELEASE_LABEL)
         badge.setMinimumWidth(130)
-    window.statusBar().showMessage("就绪 · v0.9 RC1 · Phase 8A")
+    window.statusBar().showMessage("就绪 · v0.9 RC1 · Phase 8B")
     return window
 
 

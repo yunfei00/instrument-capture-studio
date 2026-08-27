@@ -32,6 +32,8 @@ class DSOX3034ADriverProtocol(Protocol):
     def set_timebase_scale(self, scale: float) -> None: ...
     def get_trigger_sweep(self) -> str: ...
     def set_trigger_sweep(self, sweep: str) -> None: ...
+    def get_acquisition_type(self) -> str: ...
+    def set_acquisition_type(self, acquisition_type: str) -> None: ...
 
     def define_delay(
         self,
@@ -132,27 +134,60 @@ class DSOX3034AAdapter(OscilloscopeAdapter):
         )
 
     @contextmanager
-    def standalone_auto_trigger(self) -> Iterator[str]:
-        """Temporarily force AUTO sweep for a DSO-X-only acquisition.
+    def standalone_auto_trigger(self) -> Iterator[dict[str, str]]:
+        """Use deterministic one-shot settings for DSO-X-only capture.
 
-        ``:DIGitize`` obeys the oscilloscope's current trigger condition. In the
-        paired EXT recipe the real DUT trigger must remain authoritative, but a
-        standalone oscilloscope sample must not inherit a stale NORM trigger
-        condition from a previous front-panel session and then wait until the
-        VISA timeout. The original sweep is restored before the adapter session
-        is released.
+        Two front-panel settings can make ``:DIGitize`` exceed the normal VISA
+        timeout even when the instrument and LAN link are healthy:
+
+        * NORM trigger sweep can wait indefinitely for a trigger.
+        * AVERage acquisition waits until the configured average count is full.
+
+        A standalone training sample is not meant to inherit either condition,
+        so this scope temporarily uses AUTO + NORMal for its two physical
+        acquisitions. The original front-panel settings are restored when the
+        recipe exits. The paired EXT recipe never enters this context and keeps
+        its real trigger behavior unchanged.
         """
 
-        original = str(self._driver.get_trigger_sweep()).strip().upper()
-        changed = original != "AUTO"
-        if changed:
+        original_sweep = str(self._driver.get_trigger_sweep()).strip().upper()
+        original_acquisition = str(
+            self._driver.get_acquisition_type()
+        ).strip().upper()
+
+        sweep_changed = original_sweep != "AUTO"
+        acquisition_changed = original_acquisition not in {"NORM", "NORMAL"}
+
+        if sweep_changed:
             self._driver.set_trigger_sweep("AUTO")
+        if acquisition_changed:
+            self._driver.set_acquisition_type("NORMal")
+
+        state = {
+            "trigger_sweep_original": original_sweep,
+            "trigger_sweep_used": "AUTO",
+            "acquisition_type_original": original_acquisition,
+            "acquisition_type_used": "NORM",
+        }
         try:
-            yield original
+            yield state
         finally:
-            if changed and original in {"AUTO", "NORM"}:
+            if acquisition_changed and original_acquisition in {
+                "NORM",
+                "NORMAL",
+                "AVER",
+                "AVERAGE",
+                "HRES",
+                "HRESOLUTION",
+                "PEAK",
+            }:
                 try:
-                    self._driver.set_trigger_sweep(original)
+                    self._driver.set_acquisition_type(original_acquisition)
+                except Exception:
+                    pass
+            if sweep_changed and original_sweep in {"AUTO", "NORM"}:
+                try:
+                    self._driver.set_trigger_sweep(original_sweep)
                 except Exception:
                     # Disconnect follows the workflow. Do not hide the primary
                     # acquisition result if restoring front-panel state fails.

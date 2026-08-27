@@ -33,6 +33,8 @@ A logical sample is atomic. Proposed sequence:
 7. Acquire one IMM trace.
 8. Save DSO-X data + EXT trace + IMM trace together.
 
+The extra IMM trace is treated as paired data for the same frequency/repetition index and does not advance the Batch repetition counter by itself. If the dataset later needs EXT and IMM to be counted as separate training examples, that is a labeling/export concern rather than a reason to split the hardware transaction.
+
 The platform FSW driver currently exposes `acquire_trace_ascii()`, which combines arm/wait/read. v1 needs a lower-level split such as `arm_single_trace()` plus `wait_and_read_trace()` so the commercial workflow can place the DSO-X action between FSW arm and FSW read without moving product semantics into the driver repository.
 
 ## 3. Scope channel

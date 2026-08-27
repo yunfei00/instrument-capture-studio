@@ -5,7 +5,7 @@ import numpy as np
 from instrument_capture_studio.reporting.batch_report import export_batch_report
 
 
-def _job_files(job_dir, frequency_hz):
+def _job_files(job_dir, frequency_hz, job_index):
     job_dir.mkdir(parents=True)
     files = {
         "spectrum_ext": job_dir / "spectrum_ext.npz",
@@ -33,6 +33,52 @@ def _job_files(job_dir, frequency_hz):
             time_s=np.array([0.0, scale, 2 * scale]),
             voltage_v=np.array([0.0, 1.0, 0.0]),
         )
+
+    job_duration = 100.0 * job_index
+    step_base = 10.0 * job_index
+    (job_dir / "job.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "job_id": job_dir.name,
+                "state": "succeeded",
+                "duration_ms": job_duration,
+                "steps": [
+                    {
+                        "name": "fsw_ext_arm",
+                        "state": "succeeded",
+                        "duration_ms": step_base,
+                    },
+                    {
+                        "name": "dsox_delay_group",
+                        "state": "succeeded",
+                        "duration_ms": step_base * 2,
+                    },
+                    {
+                        "name": "fsw_ext_read",
+                        "state": "succeeded",
+                        "duration_ms": step_base * 3,
+                    },
+                    {
+                        "name": "dsox_cycle_group",
+                        "state": "succeeded",
+                        "duration_ms": step_base * 4,
+                    },
+                    {
+                        "name": "fsw_imm",
+                        "state": "succeeded",
+                        "duration_ms": step_base * 5,
+                    },
+                    {
+                        "name": "save_result",
+                        "state": "succeeded",
+                        "duration_ms": step_base / 2,
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
     return [str(path) for path in files.values()]
 
 
@@ -51,10 +97,11 @@ def test_exports_large_batch_summary_with_representative_plots(tmp_path):
                 "frequency_index": index,
                 "capture_index": 1,
                 "attempt": 1,
+                "frequency_config_duration_ms": float(index),
                 "started_at": "2026-08-26T00:00:00+00:00",
                 "finished_at": "2026-08-26T00:00:01+00:00",
                 "error": None,
-                "output_files": _job_files(job_dir, frequency_hz),
+                "output_files": _job_files(job_dir, frequency_hz, index),
             }
         )
 
@@ -90,6 +137,7 @@ def test_exports_large_batch_summary_with_representative_plots(tmp_path):
 
     assert result.report_html.exists()
     assert result.jobs_csv.exists()
+    assert result.timing_csv.exists()
     assert result.asset_count == 8
 
     html = result.report_html.read_text(encoding="utf-8")
@@ -100,7 +148,16 @@ def test_exports_large_batch_summary_with_representative_plots(tmp_path):
     assert "IMM" in html
     assert "DELAY" in html
     assert "CYCLE" in html
+    assert "节点耗时统计" in html
+    assert "P95" in html
+    assert "FSW EXT ARM" in html
     assert "jobs.csv" in html
+    assert "timing.csv" in html
+
+    timing_csv = result.timing_csv.read_text(encoding="utf-8-sig")
+    assert "job_total" in timing_csv
+    assert "frequency_config" in timing_csv
+    assert "fsw_ext_read" in timing_csv
 
     assets = sorted((result.report_html.parent / "assets").glob("*.svg"))
     assert len(assets) == 8

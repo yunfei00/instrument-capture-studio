@@ -151,3 +151,101 @@ def test_frequency_sweep_reconnects_and_retries_same_capture(tmp_path):
     assert len(manifest["recovery_events"]) == 1
     assert manifest["jobs"][0]["state"] == "failed"
     assert manifest["jobs"][1]["state"] == "succeeded"
+
+
+def test_frequency_sweep_cancel_between_jobs_closes_session_and_marks_batch_canceled(
+    tmp_path,
+):
+    calls = []
+    cancel_requested = False
+    capture_calls = []
+
+    def cancel_check():
+        return cancel_requested
+
+    def capture_runner(fsw, dsox, **kwargs):
+        nonlocal cancel_requested
+        capture_calls.append(kwargs["job_id"])
+        cancel_requested = True
+        return CaptureResult(
+            job_id=kwargs["job_id"],
+            state=JobState.SUCCEEDED,
+        )
+
+    result = run_frequency_sweep_batch(
+        fsw_factory=lambda: FakeFSW(calls),
+        dsox_factory=lambda: FakeDSOX(calls),
+        plan=FrequencySweepPlan(
+            start_hz=700e6,
+            stop_hz=700e6,
+            step_hz=5e6,
+            span_hz=0,
+            captures_per_frequency=10,
+        ),
+        batch_id="batch-cancel-between-jobs",
+        output_root=tmp_path,
+        cancel_check=cancel_check,
+        recovery_policy=RecoveryPolicy(
+            max_attempts=2,
+            reconnect_delay_s=0,
+        ),
+        capture_runner=capture_runner,
+    )
+
+    assert result.state is BatchState.CANCELED
+    assert result.completed_captures == 1
+    assert capture_calls == ["batch-cancel-between-jobs-f001-n0001"]
+    assert calls.count(("fsw", "connect")) == 1
+    assert calls.count(("dsox", "connect")) == 1
+    assert calls.count(("fsw", "disconnect")) == 1
+    assert calls.count(("dsox", "disconnect")) == 1
+
+    manifest = json.loads(
+        open(result.manifest_path, encoding="utf-8").read()
+    )
+    assert manifest["state"] == "canceled"
+    assert manifest["completed_captures"] == 1
+    assert manifest["last_error"] == "batch canceled by user"
+
+
+def test_frequency_sweep_cancel_during_job_records_canceled_job_and_closes_session(
+    tmp_path,
+):
+    calls = []
+
+    def capture_runner(fsw, dsox, **kwargs):
+        return CaptureResult(
+            job_id=kwargs["job_id"],
+            state=JobState.CANCELED,
+        )
+
+    result = run_frequency_sweep_batch(
+        fsw_factory=lambda: FakeFSW(calls),
+        dsox_factory=lambda: FakeDSOX(calls),
+        plan=FrequencySweepPlan(
+            start_hz=700e6,
+            stop_hz=700e6,
+            step_hz=5e6,
+            span_hz=0,
+            captures_per_frequency=10,
+        ),
+        batch_id="batch-cancel-during-job",
+        output_root=tmp_path,
+        recovery_policy=RecoveryPolicy(
+            max_attempts=2,
+            reconnect_delay_s=0,
+        ),
+        capture_runner=capture_runner,
+    )
+
+    assert result.state is BatchState.CANCELED
+    assert result.completed_captures == 0
+    assert calls.count(("fsw", "disconnect")) == 1
+    assert calls.count(("dsox", "disconnect")) == 1
+
+    manifest = json.loads(
+        open(result.manifest_path, encoding="utf-8").read()
+    )
+    assert manifest["state"] == "canceled"
+    assert len(manifest["jobs"]) == 1
+    assert manifest["jobs"][0]["state"] == "canceled"

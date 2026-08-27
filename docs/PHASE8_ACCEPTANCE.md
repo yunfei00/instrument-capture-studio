@@ -1,11 +1,11 @@
-# Phase 8 最终验收清单
+# Phase 8 最终对齐与验收清单
 
-目标：完成 v1.0.0 发布前的真实仪表、异常恢复、数据完整性、Windows 打包和用户流程验收。
+目标：在 v1.0.0 发布前先把真实采集业务语义对齐，再完成异常恢复、数据完整性和 Windows 发布验收。
 
 状态定义：
 
 - PASS：已经通过
-- PENDING：需要补验
+- PENDING：需要实现或补验
 - OPTIONAL：不阻塞 v1.0.0
 
 ## A. 已通过的基线
@@ -27,144 +27,187 @@
 | 全量曲线导出 | PASS | 用户验收 |
 | 固定频率连续采集 | PASS | 用户验收 |
 | Windows GUI 打包 | PASS | CI PyInstaller 通过 |
+| Batch 数据完整性 preflight | PASS | 真实 Batch 验收通过 |
+| 主动停止采集 | PASS | CANCELED 后可再次正常采集 |
 
-## B. 强制补验：安全停止
+## B. v1.0 强制功能对齐：采集 Recipe
 
-建议固定频率连续采集设置 50–100 次，开始后主动点击“停止采集”。
+当前 GUI 的“单次 / 扫频 / 固定连续”描述的是运行策略，不应该再和“采什么数据”混在一起。v1.0 改成两个维度：
 
-期望：
+1. **采集内容 Recipe**
+   - `EXT 联合 + IMM 配对样本`
+   - `IMM 频谱单采`
+   - `DSO-X 示波器单采`
+2. **运行策略**
+   - 单次
+   - 频率循环
+   - 固定频率重复
 
-1. GUI 立即显示已发送停止请求。
-2. 当前仪表操作在安全边界结束或 ABORt。
-3. Batch / Job 状态为 CANCELED，而不是程序崩溃。
-4. 两台仪表最终释放会话。
-5. 软件仍可继续发起下一次采集。
+### B1. EXT 联合 + IMM 配对样本
 
-状态：PENDING
+每个逻辑样本建议按以下顺序执行：
 
-软件回归覆盖：
+1. 配置 FSW 当前中心频率 / Span / RBW / VBW。
+2. FSW 切换为 EXT，并先进入单次采集等待状态。
+3. 执行 DSO-X 采集，使硬件连接产生 EXT 触发。
+4. FSW 等待完成并读取 EXT Spectrum。
+5. FSW 切换为 IMM。
+6. 再采一份 IMM Spectrum，作为同一逻辑样本的配对训练数据。
+7. 保存 DSO-X + EXT Spectrum + IMM Spectrum + metadata。
 
-- Batch 在两个 Job 之间收到取消：状态 CANCELED、Manifest 持久化、双仪表会话释放。
-- 当前 Job 返回 CANCELED：Batch 同步结束为 CANCELED，并释放双仪表会话。
-
-## C. 强制补验：FSW 物理断线恢复
-
-步骤：
-
-1. 开始固定频率连续采集或小规模扫频。
-2. 进入 FSW Spectrum 后拔掉 FSW 网线。
-3. 等待 GUI 出现 `RECONNECTING`。
-4. 在最大重试次数耗尽前插回网线。
-
-期望：
-
-- 当前失败 Job 保留 `job.json`。
-- 旧 VISA 会话被释放。
-- 2 秒后重新建立两台仪表会话。
-- 使用新的 retry Job ID 重试当前采集。
-- 最终 Batch 能继续执行。
+注意：FSW 必须先 ARM 再让示波器侧产生触发，不能等示波器事件已经结束后才启动 FSW，否则可能错过 EXT 触发。
 
 状态：PENDING
 
-## D. 强制补验：DSO-X 物理断线恢复
+### B2. IMM 频谱单采
 
-操作与 FSW 相同，但在 DSO-X DELAY / CYCLE_COUNT / Waveform 阶段断开 DSO-X 网络。
+只连接/使用 FSW：
 
-期望与 C 相同。
+1. Trigger = IMM。
+2. 采一份 Spectrum。
+3. 不要求 DSO-X 在线。
 
-状态：PENDING
-
-## E. 强制补验：最大重试失败
-
-断开一台仪表后保持断开，不在 4 次尝试内恢复。
-
-期望：
-
-- 最终任务明确 FAILED。
-- 不无限重试。
-- GUI 恢复为可再次操作状态。
-- 日志、失败 Job、Batch Manifest 保留最后错误。
+支持单次、扫频和固定频率重复。
 
 状态：PENDING
 
-## F. 强制补验：Trigger Timeout 不误重连
+### B3. DSO-X 示波器单采
 
-使用需要外部触发的场景并故意不给触发。
+只连接/使用 DSO-X，不要求 FSW 在线。
 
-期望：
-
-- 出现 InstrumentTimeoutError / Trigger Timeout。
-- 不进入 `RECONNECTING`。
-- 仪表安全 ABORt / 恢复可操作状态。
-
-状态：PENDING（FSW bounded timeout 底层能力已真机验证，本项主要验 GUI / Batch 行为）
-
-## G. 强制补验：关闭 GUI 时安全退出
-
-在采集过程中关闭主窗口。
-
-期望：
-
-- 软件请求停止采集。
-- 不留下后台线程继续操作仪表。
-- 不发生未处理异常。
-- 再次启动 GUI 可正常连接和采集。
+- Waveform Channel 必须在 GUI 明确可选。
+- 首次默认 Channel 1。
+- 后续保存用户上次选择。
+- 运行策略至少支持单次和固定次数重复。
 
 状态：PENDING
 
-## H. 数据完整性检查
+## C. v1.0 强制功能对齐：暂停与断点续采
 
-对已完成的大 Batch 执行：
+### C1. 暂停 / 继续
 
-```powershell
-python scripts\phase8_preflight.py --data-root <你的数据目录>
-```
+新增“暂停采集”按钮。
 
-期望输出：
+- 暂停发生在一个逻辑样本的安全边界，不在文件写到一半时硬停。
+- 已完成样本不重复。
+- GUI 显示 `PAUSED`。
+- 点击继续后从下一个未完成逻辑样本继续。
 
-```text
-PASS: Batch artifact acceptance
-```
+状态：PENDING
 
-校验内容：
+### C2. 停止后继续
 
-- Batch 状态 succeeded
-- completed_captures == total_captures
-- 成功 Job 数量与完成数量一致
-- 每个成功 Job 都存在：job.json、metadata.json、spectrum.csv、spectrum.npz、waveform.csv、waveform.npz
+主动停止仍释放仪表会话，但 Batch 保留可恢复游标：
 
-状态：PASS
+- 当前频率索引
+- 当前重复次数
+- 已完成逻辑样本数
+- 未完成逻辑样本
 
-2026-08-27：在真实采集数据目录运行 Phase 8 preflight，Batch 定位与标准文件完整性检查通过。脚本同时已增强为可接受数据根目录、日期目录、Batch 目录或直接 `batch.json`。
+再次点击“继续上次任务”时重新连接仪表，从下一个未完成逻辑样本继续。
 
-## I. Windows Release Candidate
+状态：PENDING
 
-正式 v1.0.0 前至少确认一次：
+### C3. 意外退出后恢复
+
+启动 GUI 时扫描未完成 Batch。对于上次处于 `RUNNING / PAUSED / CANCELED` 且未完成的任务，提供“继续上次任务”。
+
+如果程序在一个逻辑样本中途退出，该样本按未完成处理；恢复时重新执行整个逻辑样本，保证 EXT / IMM / DSO-X 配对一致，不拼接半个旧样本和半个新样本。
+
+状态：PENDING
+
+## D. v1.0 强制功能对齐：节点耗时
+
+每个采集节点记录：
+
+- `started_at`
+- `finished_at`
+- `duration_ms`
+- 状态
+- 错误（如有）
+
+至少覆盖：
+
+- FSW 配置
+- FSW EXT ARM
+- DSO-X 采集
+- FSW EXT wait/read
+- FSW IMM 配置/采集
+- DELAY / CYCLE_COUNT / Waveform（适用时）
+- Save Result
+- Job 总耗时
+
+Batch 汇总后可计算各节点平均值、P95、最大值，用于后续性能和稳定性分析。
+
+状态：PENDING
+
+## E. 强制补验：FSW 物理断线恢复
+
+开始小规模 Batch，在 FSW 节点拔掉 FSW 网线，在最大重试次数耗尽前插回。
+
+期望：当前失败样本/Job 有记录；旧 VISA 会话释放；重新建立会话；当前逻辑样本重新执行；Batch 继续。
+
+状态：PENDING
+
+## F. 强制补验：DSO-X 物理断线恢复
+
+在包含 DSO-X 的 Recipe 中断开 DSO-X 网络，期望与 E 相同。
+
+状态：PENDING
+
+## G. 强制补验：最大重试失败
+
+断开一台仪表后保持断开，不在最大尝试次数内恢复。
+
+期望：明确 FAILED；不无限重试；GUI 恢复为可操作；日志、Batch Manifest 和失败记录保留最后错误。
+
+状态：PENDING
+
+## H. 强制补验：Trigger Timeout 不误重连
+
+使用 EXT Recipe 并故意不给外部触发。
+
+期望：出现 Trigger Timeout；不进入 `RECONNECTING`；FSW 安全 ABORt；任务按测量超时处理。
+
+状态：PENDING
+
+## I. 强制补验：关闭 GUI 时安全退出
+
+采集中关闭主窗口。
+
+期望：请求安全停止；不留下后台线程继续操作仪表；再次启动时可以识别未完成任务并继续。
+
+状态：PENDING
+
+## J. Windows Release Candidate
+
+正式 v1.0.0 前至少确认：
 
 1. `pytest -q` 通过。
 2. `python scripts\phase8_preflight.py --self-check` 通过。
 3. GitHub Actions Product GUI smoke test 通过。
 4. PyInstaller ZIP 构建通过。
 5. Windows EXE 能启动。
-6. EXE 下两台仪表“测试连接”成功。
-7. EXE 下执行一次完整联合采集成功。
+6. EXE 下各 Recipe 所需仪表“测试连接”成功。
+7. EXE 下三种 Recipe 至少各做一次小规模真机验收。
+8. 暂停/继续、停止后继续、异常退出恢复完成验收。
 
 状态：PENDING
 
-## J. OPTIONAL，不阻塞 v1.0.0
+## K. OPTIONAL，不阻塞 v1.0.0
 
 - PDF 报告
 - 更多仪表型号
 - 云端报告
 - 数据库索引
-- 更复杂的断点续采策略
 - UI 主题 / 国际化进一步优化
 
-## v1.0.0 封板条件
+## 新 Phase 8 顺序
 
-B、C、D、E、F、G、H、I 全部 PASS 后：
+- **8A：真实采集 Recipe 与数据 Schema v2**
+- **8B：暂停 / 停止后继续 / 意外退出恢复**
+- **8C：节点耗时与性能统计**
+- **8D：断线 / Timeout / GUI 退出等异常验收**
+- **8E：RC EXE 与 v1.0.0 Release**
 
-1. 将 `pyproject.toml` 版本改为 `1.0.0`。
-2. Roadmap Phase 8 标记 COMPLETE。
-3. 创建 `v1.0.0` Tag。
-4. GitHub Actions 自动生成 Windows Release。
+Phase 7 保持 COMPLETE，不重新打开。以上都是在真实硬件使用中发现的 v1.0 发布前业务对齐项，统一纳入 Phase 8。

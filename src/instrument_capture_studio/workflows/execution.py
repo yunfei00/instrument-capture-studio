@@ -12,6 +12,7 @@ class StepExecutionContext:
 
     deadline: float | None = None
     cancel_check: CancelCheck | None = None
+    timeout_s: float | None = None
 
     @classmethod
     def from_timeout(
@@ -28,6 +29,7 @@ class StepExecutionContext:
         return cls(
             deadline=monotonic() + timeout_s,
             cancel_check=cancel_check,
+            timeout_s=timeout_s,
         )
 
     @property
@@ -39,10 +41,18 @@ class StepExecutionContext:
         if self.deadline is None:
             return None
 
-        return max(
+        remaining = max(
             0.0,
             self.deadline - monotonic(),
         )
+
+        # Floating-point arithmetic on a large monotonic clock value can make
+        # `deadline - now` exceed the configured timeout by a few ulps. Never
+        # pass an instrument a timeout larger than the user's configured limit.
+        if self.timeout_s is not None:
+            return min(remaining, self.timeout_s)
+
+        return remaining
 
     @property
     def expired(self) -> bool:

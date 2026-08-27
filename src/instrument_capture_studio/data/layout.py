@@ -46,7 +46,8 @@ class JobDataLayout:
     def job_manifest_path(self) -> Path:
         return self.job_directory / "job.json"
 
-    # Schema v1 single-spectrum paths.
+    # Legacy internal debugging names. Formal Phase-8 recipes use the explicit
+    # EXT/IMM and DELAY/CYCLE names below.
     @property
     def spectrum_csv_path(self) -> Path:
         return self.job_directory / "spectrum.csv"
@@ -55,7 +56,14 @@ class JobDataLayout:
     def spectrum_npz_path(self) -> Path:
         return self.job_directory / "spectrum.npz"
 
-    # Schema v2 paired-training spectrum paths.
+    @property
+    def waveform_csv_path(self) -> Path:
+        return self.job_directory / "waveform.csv"
+
+    @property
+    def waveform_npz_path(self) -> Path:
+        return self.job_directory / "waveform.npz"
+
     @property
     def spectrum_ext_csv_path(self) -> Path:
         return self.job_directory / "spectrum_ext.csv"
@@ -73,12 +81,20 @@ class JobDataLayout:
         return self.job_directory / "spectrum_imm.npz"
 
     @property
-    def waveform_csv_path(self) -> Path:
-        return self.job_directory / "waveform.csv"
+    def waveform_delay_csv_path(self) -> Path:
+        return self.job_directory / "waveform_delay.csv"
 
     @property
-    def waveform_npz_path(self) -> Path:
-        return self.job_directory / "waveform.npz"
+    def waveform_delay_npz_path(self) -> Path:
+        return self.job_directory / "waveform_delay.npz"
+
+    @property
+    def waveform_cycle_csv_path(self) -> Path:
+        return self.job_directory / "waveform_cycle.csv"
+
+    @property
+    def waveform_cycle_npz_path(self) -> Path:
+        return self.job_directory / "waveform_cycle.npz"
 
     def create_directories(self) -> None:
         self.job_directory.mkdir(parents=True, exist_ok=True)

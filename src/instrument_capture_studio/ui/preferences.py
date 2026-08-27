@@ -17,6 +17,8 @@ class WindowPreferences:
         "dsox/delay_source1": "delay_source1_edit",
         "dsox/delay_source2": "delay_source2_edit",
         "dsox/cycle_source": "cycle_source_edit",
+        "dsox/delay_timebase_scale_s": "delay_timebase_scale_edit",
+        "dsox/cycle_timebase_scale_s": "cycle_timebase_scale_edit",
         "capture/output_root": "output_root_edit",
         "sweep/start_mhz": "sweep_start_mhz_edit",
         "sweep/stop_mhz": "sweep_stop_mhz_edit",

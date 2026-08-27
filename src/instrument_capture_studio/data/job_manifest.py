@@ -17,10 +17,22 @@ def _datetime_text(
     return value.isoformat()
 
 
+def _duration_ms(
+    started_at: datetime | None,
+    finished_at: datetime | None,
+) -> float | None:
+    if started_at is None or finished_at is None:
+        return None
+    return round(
+        max(0.0, (finished_at - started_at).total_seconds() * 1000.0),
+        3,
+    )
+
+
 def build_job_manifest(
     result: CaptureResult,
 ) -> dict[str, Any]:
-    """把 CaptureResult 转为可持久化 Job 清单。"""
+    """把 CaptureResult 转为可持久化 Job 清单，并记录节点耗时。"""
 
     return {
         "schema_version": 1,
@@ -32,6 +44,10 @@ def build_job_manifest(
         "finished_at": _datetime_text(
             result.finished_at
         ),
+        "duration_ms": _duration_ms(
+            result.started_at,
+            result.finished_at,
+        ),
         "steps": [
             {
                 "name": step.name,
@@ -41,6 +57,10 @@ def build_job_manifest(
                 ),
                 "finished_at": _datetime_text(
                     step.finished_at
+                ),
+                "duration_ms": _duration_ms(
+                    step.started_at,
+                    step.finished_at,
                 ),
                 "error": step.error,
                 "metadata": dict(

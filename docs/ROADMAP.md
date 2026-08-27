@@ -110,9 +110,9 @@ Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格�
 
 ### Phase 8A - 正式 Recipe + 正式数据 Schema v1
 
-状态：**SOFTWARE COMPLETE / PAIRED HARDWARE ACCEPTED / SINGLE-INSTRUMENT ACCEPTANCE PENDING**
+状态：**COMPLETE**
 
-已完成：
+已完成并真机验收：
 
 - GUI 将“采集内容”和“执行方式”拆成独立维度。
 - Recipe A：`EXT联合 + IMM配对样本`。
@@ -126,19 +126,16 @@ Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格�
 - 配对 Job 明确保存 `spectrum_ext`、`spectrum_imm`、`waveform_delay`、`waveform_cycle` 四类 CSV/NPZ 数据。
 - Data Browser / Trace Viewer / HTML Report / 全量曲线导出 / Phase 8 preflight 已适配正式命名。
 - 2026-08-27：真实单次 `EXT联合 + IMM配对样本` 真机采集通过，四类数据文件均正确生成。
+- 2026-08-27：`IMM频谱单采 × 1` 真机通过。
+- 2026-08-27：`DSO-X示波器单采 × 1` 真机通过。
 
-剩余 Phase 8A 真机验收：
-
-- `IMM频谱单采 × 1`
-- `DSO-X示波器单采 × 1`（至少 CH1；如需额外确认通道切换可再测 CH2）
-
-完成这两项后即可冻结正式 Schema v1，并关闭 Phase 8A。
+正式 Schema v1 至此冻结；后续 Phase 8 不再调整其核心采集语义和文件命名，除非发现阻塞发布的数据一致性缺陷。
 
 ### Phase 8B - 暂停与断点续采
 
-状态：**SOFTWARE COMPLETE / HARDWARE ACCEPTANCE PENDING**
+状态：**COMPLETE**
 
-软件已完成：
+已完成并真机验收：
 
 - 批量采集过程中可请求暂停；只在完整逻辑样本边界进入 `PAUSED`。
 - 暂停时释放 FSW + DSO-X 会话；继续时重新建立会话。
@@ -150,8 +147,8 @@ Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格�
 - 每个正式 Batch 新增独立的冻结参数快照：`<output_root>/batch-configs/<batch_id>.json`。
 - 参数快照保存 FSW / DSO-X 完整运行参数、Recipe 和执行方式；重启续采使用原 Batch 快照，不依赖当前 GUI / QSettings 临时值。
 - 旧调试 Batch 没有冻结参数快照时不会被误识别为可续采正式任务。
-
-Phase 8B 真机验收计划：固定频率重复 10 次，依次验证“暂停→继续→停止→关闭程序→重新打开→继续上次任务”，最终补齐 10/10，并确认续采仍使用原始 FSW/DSO-X/Channel/时基参数。
+- 2026-08-27：固定频率重复 10 次真机验收通过，完成“暂停 → 继续 → 停止 → 关闭程序 → 重新打开 → 继续上次任务”，最终补齐 10/10。
+- 2026-08-27：续采前故意修改 GUI 参数后，程序仍正确恢复原 Batch 的 Channel 与 DELAY/CYCLE 时基，符合冻结参数设计。
 
 ### Phase 8C - 节点耗时与性能统计
 
@@ -168,13 +165,20 @@ Phase 8B 真机验收计划：固定频率重复 10 次，依次验证“暂停�
 - 每份 Batch Report 同时生成 `timing.csv`，方便后续性能分析。
 - 失败 / timeout Job 保留原始时间数据用于诊断，但不混入正常性能统计。
 
-待真机数据复核：在 Phase 8B 的 10 次小规模验收完成后检查 timing.csv 和 HTML 统计是否与实际采集时间量级一致。
+待真机数据复核：使用 Phase 8B 已通过的 10 次验收数据检查 timing.csv 和 HTML 统计是否与实际采集时间量级一致。
 
 ### Phase 8D - 异常与恢复真机验收
 
-状态：**PENDING**
+状态：**IN PROGRESS**
 
-完成 FSW / DSO-X 物理断线恢复、最大重试失败、Trigger Timeout 不误重连、采集中关闭 GUI 的安全退出与恢复。
+软件侧已开始 Release Hardening：
+
+- 采集中关闭 GUI 时不再强制销毁 VISA Worker Thread。
+- 关闭请求转换为协作式停止，等待当前仪表操作安全结束并释放会话后自动退出。
+- 连接测试尚未结束时关闭 GUI，同样等待测试完成后再退出。
+- 不使用 `QThread.terminate()` 等强制线程终止方式。
+
+剩余真机验收：FSW / DSO-X 物理断线恢复、最大重试失败、Trigger Timeout 不误重连，以及采集中关闭 GUI 的完整安全退出与恢复。
 
 ### Phase 8E - Release Candidate
 

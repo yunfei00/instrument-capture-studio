@@ -2,18 +2,15 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from instrument_capture_studio.core.results import (
-    MeasurementResult,
-    SpectrumResult,
-    WaveformResult,
-)
+from instrument_capture_studio.core.results import SpectrumResult, WaveformResult
 
 
 CancelCheck = Callable[[], bool]
 
 
 class ArmedSpectrumAdapter(Protocol):
-    def arm_spectrum(self, trigger_source: str = "EXT") -> None: ...
+    def read_sweep_time_s(self) -> float: ...
+    def arm_external_current_setup(self) -> None: ...
 
     def read_armed_spectrum(
         self,
@@ -23,9 +20,8 @@ class ArmedSpectrumAdapter(Protocol):
         trigger_source: str = "EXT",
     ) -> SpectrumResult: ...
 
-    def acquire_spectrum_with_trigger(
+    def acquire_freerun_current_setup(
         self,
-        trigger_source: str | None,
         *,
         timeout_s: float | None = None,
         cancel_check: CancelCheck | None = None,
@@ -33,20 +29,23 @@ class ArmedSpectrumAdapter(Protocol):
 
 
 class DSOXSampleAdapter(Protocol):
-    def acquire_delay_group(self) -> tuple[MeasurementResult, WaveformResult]: ...
-    def acquire_cycle_group(self) -> tuple[MeasurementResult, WaveformResult]: ...
+    def configure_sync_window(self, sweep_time_s: float) -> dict[str, object]: ...
+    def acquire_sync_waveform(self) -> WaveformResult: ...
+    def configure_followup_window(self) -> dict[str, object]: ...
+    def acquire_followup_waveform(self) -> WaveformResult: ...
 
 
 @dataclass(frozen=True)
 class PairedTrainingSample:
-    """One formal logical sample with two spectra and two DSO-X acquisitions."""
+    """One final logical sample with two spectra and two scope waveforms."""
 
+    sweep_time_s: float
     spectrum_ext: SpectrumResult
-    spectrum_imm: SpectrumResult
-    delay: MeasurementResult
-    cycle_count: MeasurementResult
-    waveform_delay: WaveformResult
-    waveform_cycle: WaveformResult
+    waveform_sync: WaveformResult
+    waveform_followup: WaveformResult
+    spectrum_freerun: SpectrumResult
+    sync_window: dict[str, object]
+    followup_window: dict[str, object]
 
 
 def acquire_ext_imm_paired_sample(
@@ -56,18 +55,12 @@ def acquire_ext_imm_paired_sample(
     fsw_timeout_s: float | None = None,
     cancel_check: CancelCheck | None = None,
 ) -> PairedTrainingSample:
-    """Acquire one formal paired sample in the qualified hardware ordering.
+    """Acquire one final paired sample in the hardware-qualified ordering."""
 
-    Order:
-      FSW EXT ARM
-      -> DSO-X DELAY group (first independent DIGitize; hardware EXT event)
-      -> FSW EXT read
-      -> DSO-X CYCLE_COUNT group (second independent DIGitize)
-      -> FSW IMM acquire.
-    """
-
-    spectrum_analyzer.arm_spectrum("EXT")
-    delay, waveform_delay = oscilloscope.acquire_delay_group()
+    sweep_time_s = spectrum_analyzer.read_sweep_time_s()
+    sync_window = oscilloscope.configure_sync_window(sweep_time_s)
+    spectrum_analyzer.arm_external_current_setup()
+    waveform_sync = oscilloscope.acquire_sync_waveform()
 
     spectrum_ext = spectrum_analyzer.read_armed_spectrum(
         timeout_s=fsw_timeout_s,
@@ -75,19 +68,19 @@ def acquire_ext_imm_paired_sample(
         trigger_source="EXT",
     )
 
-    cycle_count, waveform_cycle = oscilloscope.acquire_cycle_group()
-
-    spectrum_imm = spectrum_analyzer.acquire_spectrum_with_trigger(
-        "IMM",
+    followup_window = oscilloscope.configure_followup_window()
+    waveform_followup = oscilloscope.acquire_followup_waveform()
+    spectrum_freerun = spectrum_analyzer.acquire_freerun_current_setup(
         timeout_s=fsw_timeout_s,
         cancel_check=cancel_check,
     )
 
     return PairedTrainingSample(
+        sweep_time_s=sweep_time_s,
         spectrum_ext=spectrum_ext,
-        spectrum_imm=spectrum_imm,
-        delay=delay,
-        cycle_count=cycle_count,
-        waveform_delay=waveform_delay,
-        waveform_cycle=waveform_cycle,
+        waveform_sync=waveform_sync,
+        waveform_followup=waveform_followup,
+        spectrum_freerun=spectrum_freerun,
+        sync_window=sync_window,
+        followup_window=followup_window,
     )

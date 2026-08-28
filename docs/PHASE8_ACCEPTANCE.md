@@ -2,6 +2,8 @@
 
 目标：在 v1.0.0 发布前冻结真实采集 Recipe / 正式 Schema v1，完成暂停恢复、时间遥测、异常恢复和 Windows 发布验收。
 
+当前 Release Candidate：`1.0.0rc1`。
+
 状态定义：
 
 - PASS：已经通过

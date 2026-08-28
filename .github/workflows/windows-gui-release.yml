@@ -63,7 +63,7 @@ jobs:
         run: |
           python -m pytest -q instrument-automation-platform/tests/unit/test_fsw_arm_read.py
 
-      - name: Run DSO-X platform regression
+      - name: Run DSO-X Single STOP synchronization regression
         shell: pwsh
         run: |
           python -m pytest -q instrument-automation-platform/tests/unit/test_dsox3000_driver.py

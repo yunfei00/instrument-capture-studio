@@ -28,7 +28,7 @@ CancelCheck = Callable[[], bool]
 
 @dataclass(frozen=True)
 class FormalDSOXConfig(DSOX3034AConfig):
-    """Final paired-recipe DSO-X timing values."""
+    """Final DSO-X timing values and one-shot wait policy."""
 
     followup_position_s: float = 0.484
     followup_scale_s: float = 20e-9
@@ -128,7 +128,7 @@ class FormalFSWAdapter(FSWAdapter):
 
 
 class FormalDSOXAdapter(DSOX3034AAdapter):
-    """DSO-X timing-window primitives for two independent Single acquisitions."""
+    """DSO-X primitives that always capture with front-panel Single semantics."""
 
     def configure_sync_window(self, sweep_time_s: float) -> dict[str, object]:
         sweep_time = float(sweep_time_s)
@@ -161,6 +161,43 @@ class FormalDSOXAdapter(DSOX3034AAdapter):
         cancel_check: CancelCheck | None = None,
     ) -> WaveformResult:
         return self._acquire_formal_waveform("followup", cancel_check=cancel_check)
+
+    def acquire_delay_group(
+        self,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ):
+        """Standalone DELAY group: set timebase, Single once, then read data."""
+        config = self._config
+        self._driver.set_timebase_scale(config.delay_timebase_scale_s)
+        self._driver.define_delay(
+            config.delay_edge1,
+            config.delay_edge2,
+        )
+        waveform = self._acquire_formal_waveform(
+            "delay",
+            cancel_check=cancel_check,
+        )
+        value = self._driver.measure_delay(
+            config.delay_source1,
+            config.delay_source2,
+        )
+        return self._delay_result(value), waveform
+
+    def acquire_cycle_group(
+        self,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ):
+        """Standalone cycle group: set timebase, Single once, then read data."""
+        config = self._config
+        self._driver.set_timebase_scale(config.cycle_timebase_scale_s)
+        waveform = self._acquire_formal_waveform(
+            "cycle_count",
+            cancel_check=cancel_check,
+        )
+        value = self._driver.measure_n_pulses(config.cycle_count_source)
+        return self._cycle_result(value), waveform
 
     def _configure_window(
         self,

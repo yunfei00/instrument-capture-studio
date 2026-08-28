@@ -30,14 +30,22 @@ class ArmedSpectrumAdapter(Protocol):
 
 class DSOXSampleAdapter(Protocol):
     def configure_sync_window(self, sweep_time_s: float) -> dict[str, object]: ...
-    def acquire_sync_waveform(self) -> WaveformResult: ...
+    def acquire_sync_waveform(
+        self,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ) -> WaveformResult: ...
     def configure_followup_window(self) -> dict[str, object]: ...
-    def acquire_followup_waveform(self) -> WaveformResult: ...
+    def acquire_followup_waveform(
+        self,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ) -> WaveformResult: ...
 
 
 @dataclass(frozen=True)
 class PairedTrainingSample:
-    """One final logical sample with two spectra and two scope waveforms."""
+    """One final logical sample with two spectra and two Single scope waveforms."""
 
     sweep_time_s: float
     spectrum_ext: SpectrumResult
@@ -55,12 +63,12 @@ def acquire_ext_imm_paired_sample(
     fsw_timeout_s: float | None = None,
     cancel_check: CancelCheck | None = None,
 ) -> PairedTrainingSample:
-    """Acquire one final paired sample in the hardware-qualified ordering."""
+    """Acquire one final paired sample; all four physical acquisitions are Single."""
 
     sweep_time_s = spectrum_analyzer.read_sweep_time_s()
     sync_window = oscilloscope.configure_sync_window(sweep_time_s)
     spectrum_analyzer.arm_external_current_setup()
-    waveform_sync = oscilloscope.acquire_sync_waveform()
+    waveform_sync = oscilloscope.acquire_sync_waveform(cancel_check=cancel_check)
 
     spectrum_ext = spectrum_analyzer.read_armed_spectrum(
         timeout_s=fsw_timeout_s,
@@ -69,7 +77,9 @@ def acquire_ext_imm_paired_sample(
     )
 
     followup_window = oscilloscope.configure_followup_window()
-    waveform_followup = oscilloscope.acquire_followup_waveform()
+    waveform_followup = oscilloscope.acquire_followup_waveform(
+        cancel_check=cancel_check,
+    )
     spectrum_freerun = spectrum_analyzer.acquire_freerun_current_setup(
         timeout_s=fsw_timeout_s,
         cancel_check=cancel_check,

@@ -1,4 +1,4 @@
-"""Export every saved formal Recipe trace from a Batch to SVG files."""
+"""Export every saved formal paired Recipe trace from a Batch to SVG files."""
 
 import csv
 import re
@@ -38,9 +38,9 @@ class _TraceTask:
 
 _FORMAL_TRACE_FILES = (
     ("spectrum_ext", "spectrum_ext.npz"),
-    ("spectrum_imm", "spectrum_imm.npz"),
-    ("waveform_delay", "waveform_delay.npz"),
-    ("waveform_cycle", "waveform_cycle.npz"),
+    ("waveform_sync", "waveform_sync.npz"),
+    ("waveform_followup", "waveform_followup.npz"),
+    ("spectrum_freerun", "spectrum_freerun.npz"),
 )
 
 
@@ -51,13 +51,7 @@ def export_all_batch_traces(
     cancel_check: CancelCheck | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> BatchTraceExportResult:
-    """Export all formal Recipe NPZ traces referenced by one Batch manifest.
-
-    EXT+IMM paired samples can contain four independent traces per logical Job:
-    EXT spectrum, IMM spectrum, DELAY waveform, and CYCLE_COUNT waveform. Each
-    trace kind is exported to its own directory so training/debug data cannot
-    be confused later.
-    """
+    """Export all final paired Recipe NPZ traces referenced by one Batch."""
 
     manifest_path = Path(manifest_path)
     manifest = load_batch_manifest(manifest_path)

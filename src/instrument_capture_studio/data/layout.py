@@ -5,7 +5,7 @@ from pathlib import Path
 
 @dataclass(frozen=True)
 class JobDataLayout:
-    """一次 Capture Job 的标准数据目录和文件命名。"""
+    """Standard filesystem layout for one Capture Job."""
 
     root: Path
     job_id: str
@@ -46,8 +46,7 @@ class JobDataLayout:
     def job_manifest_path(self) -> Path:
         return self.job_directory / "job.json"
 
-    # Legacy internal debugging names. Formal Phase-8 recipes use the explicit
-    # EXT/IMM and DELAY/CYCLE names below.
+    # Internal legacy/debug names.
     @property
     def spectrum_csv_path(self) -> Path:
         return self.job_directory / "spectrum.csv"
@@ -64,6 +63,7 @@ class JobDataLayout:
     def waveform_npz_path(self) -> Path:
         return self.job_directory / "waveform.npz"
 
+    # Final paired recipe artifacts.
     @property
     def spectrum_ext_csv_path(self) -> Path:
         return self.job_directory / "spectrum_ext.csv"
@@ -72,6 +72,31 @@ class JobDataLayout:
     def spectrum_ext_npz_path(self) -> Path:
         return self.job_directory / "spectrum_ext.npz"
 
+    @property
+    def waveform_sync_csv_path(self) -> Path:
+        return self.job_directory / "waveform_sync.csv"
+
+    @property
+    def waveform_sync_npz_path(self) -> Path:
+        return self.job_directory / "waveform_sync.npz"
+
+    @property
+    def waveform_followup_csv_path(self) -> Path:
+        return self.job_directory / "waveform_followup.csv"
+
+    @property
+    def waveform_followup_npz_path(self) -> Path:
+        return self.job_directory / "waveform_followup.npz"
+
+    @property
+    def spectrum_freerun_csv_path(self) -> Path:
+        return self.job_directory / "spectrum_freerun.csv"
+
+    @property
+    def spectrum_freerun_npz_path(self) -> Path:
+        return self.job_directory / "spectrum_freerun.npz"
+
+    # Standalone recipes retained in v1.
     @property
     def spectrum_imm_csv_path(self) -> Path:
         return self.job_directory / "spectrum_imm.csv"

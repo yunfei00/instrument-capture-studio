@@ -146,3 +146,19 @@ def test_operation_canceled_error_is_translated():
         match="operation:",
     ):
         driver.operation()
+
+
+def test_platform_helper_is_wrapped_by_same_timeout_boundary():
+    raw_driver = object()
+    guard = DriverErrorGuard(raw_driver)
+
+    def helper(driver, channel):
+        assert driver is raw_driver
+        assert channel == 1
+        raise make_exception("TriggerTimeoutError")
+
+    with pytest.raises(
+        ProductTimeoutError,
+        match="single_waveform:",
+    ):
+        guard.call_driver_helper("single_waveform", helper, 1)

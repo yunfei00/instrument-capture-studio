@@ -44,6 +44,7 @@ _FORMAL_JOB_FILES = (
     "waveform_sync.npz",
     "waveform_followup.npz",
     "spectrum_freerun.npz",
+    # Standalone v1 recipe artifacts remain browseable.
     "spectrum_imm.npz",
     "waveform_delay.npz",
     "waveform_cycle.npz",
@@ -70,7 +71,7 @@ class MainWindow(Phase7MainWindow):
         self.data_tree.itemDoubleClicked.connect(self._open_data_item)
         self.data_tree.itemSelectionChanged.connect(self._update_result_actions)
         self.data_tree.setToolTip(
-            "双击 Job 打开目录；双击 EXT/同步波形/第二次波形/Free Run NPZ 查看曲线；双击 JSON 查看详情。"
+            "双击 Job 打开目录；双击 EXT/同步/第二次/Free Run NPZ 查看曲线；双击 JSON 查看详情。"
         )
         self._refresh_data_tree()
         self._append_log(f"会话日志：{self._session_log.path}")
@@ -144,44 +145,47 @@ class MainWindow(Phase7MainWindow):
                 self.template_combo.setCurrentIndex(index)
         self.template_combo.blockSignals(False)
         self.template_load_button.setEnabled(bool(names) and not self._capture_busy)
+        self.template_delete_button.setEnabled(bool(names) and not self._capture_busy)
 
     def _on_template_selected(self, name: str) -> None:
-        self.template_name_edit.setText(name)
+        if name:
+            self.template_name_edit.setText(name)
 
     def _save_capture_template(self) -> None:
         name = self.template_name_edit.text().strip()
+        if not name:
+            name = self.template_combo.currentText().strip()
         try:
             record = self._template_store.save(
                 name,
                 self._preferences.snapshot(self),
             )
-        except Exception as exc:
-            QMessageBox.warning(
-                self,
-                "保存模板失败",
-                f"{type(exc).__name__}: {exc}",
-            )
+        except (OSError, ValueError) as exc:
+            self._show_input_error(str(exc))
             return
+
+        self.template_name_edit.setText(record.name)
         self._refresh_template_list(record.name)
-        self._append_log(f"已保存实验配置模板：{record.name}")
+        self._append_log(f"已保存配置模板：{record.name}")
 
     def _load_capture_template(self) -> None:
         name = self.template_combo.currentText().strip()
         if not name:
+            self._show_input_error("请选择要加载的模板")
             return
         try:
             record = self._template_store.load(name)
-            self._preferences.apply(self, record.values)
-        except Exception as exc:
-            QMessageBox.warning(
-                self,
-                "加载模板失败",
-                f"{type(exc).__name__}: {exc}",
-            )
+        except (OSError, ValueError) as exc:
+            self._show_input_error(str(exc))
             return
+
+        self._preferences.apply(self, record.values)
         self._sync_sweep_mode()
         self._update_sweep_summary()
-        self._append_log(f"已加载实验配置模板：{record.name}")
+        self._save_preferences()
+        self._refresh_data_tree()
+        self.template_name_edit.setText(record.name)
+        self._append_log(f"已加载配置模板：{record.name}")
 
     def _delete_capture_template(self) -> None:
         name = self.template_combo.currentText().strip()
@@ -189,158 +193,203 @@ class MainWindow(Phase7MainWindow):
             return
         answer = QMessageBox.question(
             self,
-            "删除模板",
-            f"确认删除实验配置模板“{name}”？",
+            "删除配置模板",
+            f"确认删除模板“{name}”？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
         try:
             self._template_store.delete(name)
-        except Exception as exc:
-            QMessageBox.warning(
-                self,
-                "删除模板失败",
-                f"{type(exc).__name__}: {exc}",
-            )
+        except OSError as exc:
+            self._show_input_error(str(exc))
             return
+        self.template_name_edit.clear()
         self._refresh_template_list()
-        self._append_log(f"已删除实验配置模板：{name}")
-
-    def _refresh_data_tree(self) -> None:
-        self.data_tree.clear()
-        root = self.output_root_edit.text().strip()
-        if not root:
-            return
-
-        data_root = Path(root).expanduser()
-        batches = list_recent_batches(data_root, limit=20)
-        jobs = list_recent_jobs(data_root, limit=100)
-
-        if batches:
-            batch_root = QTreeWidgetItem(["Batches", "", ""])
-            batch_root.setData(0, Qt.ItemDataRole.UserRole, ("group", "batches"))
-            self.data_tree.addTopLevelItem(batch_root)
-            for batch in batches:
-                item = QTreeWidgetItem(
-                    [
-                        batch.batch_id,
-                        batch.state.upper(),
-                        (
-                            f"{batch.completed_captures}/{batch.total_captures} · "
-                            f"{batch.start_hz / 1e6:g}-{batch.stop_hz / 1e6:g} MHz"
-                        ),
-                    ]
-                )
-                item.setData(
-                    0,
-                    Qt.ItemDataRole.UserRole,
-                    ("batch", str(batch.manifest_path)),
-                )
-                batch_root.addChild(item)
-            batch_root.setExpanded(True)
-
-        if jobs:
-            job_root = QTreeWidgetItem(["Jobs", "", ""])
-            job_root.setData(0, Qt.ItemDataRole.UserRole, ("group", "jobs"))
-            self.data_tree.addTopLevelItem(job_root)
-            for job in jobs:
-                item = QTreeWidgetItem(
-                    [
-                        job.job_id,
-                        job.state.upper(),
-                        job.recipe or job.captured_at,
-                    ]
-                )
-                item.setData(
-                    0,
-                    Qt.ItemDataRole.UserRole,
-                    ("job", str(job.directory)),
-                )
-                job_root.addChild(item)
-            job_root.setExpanded(True)
-
-    def _open_data_item(self, item: QTreeWidgetItem, _column: int) -> None:
-        payload = item.data(0, Qt.ItemDataRole.UserRole)
-        if not payload:
-            return
-        kind, raw_path = payload
-        if kind == "job":
-            QDesktopServices.openUrl(QUrl.fromLocalFile(raw_path))
-            return
-        if kind in {"batch", "group"}:
-            return
-        if kind == "file":
-            path = Path(raw_path)
-            if path.suffix.lower() == ".npz":
-                dialog = TraceViewerDialog(path, self)
-                dialog.exec()
-            elif path.suffix.lower() == ".json":
-                dialog = JsonViewerDialog(path, self)
-                dialog.exec()
-
-    def _update_result_actions(self) -> None:
-        selected = self.data_tree.selectedItems()
-        batch_selected = False
-        if selected:
-            payload = selected[0].data(0, Qt.ItemDataRole.UserRole)
-            batch_selected = bool(payload and payload[0] == "batch")
-        self.batch_report_button.setEnabled(batch_selected and not self._capture_busy)
-        if hasattr(self, "batch_trace_export_button"):
-            self.batch_trace_export_button.setEnabled(
-                batch_selected and not self._capture_busy
-            )
-
-    def _selected_batch_manifest(self) -> Path | None:
-        selected = self.data_tree.selectedItems()
-        if not selected:
-            return None
-        payload = selected[0].data(0, Qt.ItemDataRole.UserRole)
-        if not payload or payload[0] != "batch":
-            return None
-        return Path(payload[1])
-
-    def _generate_batch_report(self) -> None:
-        manifest = self._selected_batch_manifest()
-        if manifest is None:
-            return
-        try:
-            result = export_batch_report(manifest)
-        except Exception as exc:
-            QMessageBox.critical(
-                self,
-                "生成 Batch 报告失败",
-                f"{type(exc).__name__}: {exc}",
-            )
-            return
-        self._append_log(
-            f"Batch HTML 报告已生成：{result.report_html} · "
-            f"timing={result.timing_csv}"
-        )
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(result.report_html)))
-
-    def _open_session_log(self) -> None:
-        self._session_log.flush()
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._session_log.path)))
-
-    def _append_log(self, message: str) -> None:
-        super()._append_log(message)
-        if hasattr(self, "_session_log"):
-            self._session_log.write(message)
+        self._append_log(f"已删除配置模板：{name}")
 
     def _set_capture_busy(self, busy: bool) -> None:
         super()._set_capture_busy(busy)
-        if hasattr(self, "template_save_button"):
-            self.template_save_button.setEnabled(not busy)
-            self.template_load_button.setEnabled(
-                bool(self.template_combo.count()) and not busy
+        for attribute in (
+            "template_combo",
+            "template_name_edit",
+            "template_save_button",
+            "template_load_button",
+            "template_delete_button",
+            "batch_report_button",
+        ):
+            if hasattr(self, attribute):
+                getattr(self, attribute).setEnabled(not busy)
+        if hasattr(self, "_template_store") and not busy:
+            self._refresh_template_list()
+        if hasattr(self, "batch_report_button"):
+            self._update_result_actions()
+
+    def _refresh_data_tree(self) -> None:
+        self.data_tree.clear()
+        root = Path(self.output_root_edit.text()).expanduser()
+        if not root.exists():
+            self.data_tree.addTopLevelItem(QTreeWidgetItem(["暂无数据", str(root)]))
+            if hasattr(self, "batch_report_button"):
+                self._update_result_actions()
+            return
+
+        batches = list_recent_batches(root, limit=50)
+        batch_root = QTreeWidgetItem(["批次结果", f"最近 {len(batches)} 个"])
+        self.data_tree.addTopLevelItem(batch_root)
+        for batch in batches:
+            plan_parts = []
+            if batch.start_hz is not None and batch.stop_hz is not None:
+                plan_parts.append(
+                    f"{batch.start_hz / 1e6:g}-{batch.stop_hz / 1e6:g} MHz"
+                )
+            if batch.step_hz is not None:
+                plan_parts.append(f"step {batch.step_hz / 1e6:g} MHz")
+            if batch.captures_per_frequency is not None:
+                plan_parts.append(f"x{batch.captures_per_frequency}")
+            summary = (
+                f"{batch.state.upper()} · "
+                f"{batch.completed_captures}/{batch.total_captures}"
             )
-            self.template_delete_button.setEnabled(
-                bool(self.template_combo.count()) and not busy
+            if batch.failed_jobs:
+                summary += f" · failed jobs {batch.failed_jobs}"
+            if plan_parts:
+                summary += " · " + " · ".join(plan_parts)
+
+            node = QTreeWidgetItem([batch.batch_id, summary])
+            node.setData(0, Qt.ItemDataRole.UserRole, str(batch.manifest_path))
+            batch_root.addChild(node)
+
+            directory_node = QTreeWidgetItem(["打开批次目录", str(batch.manifest_path.parent)])
+            directory_node.setData(
+                0,
+                Qt.ItemDataRole.UserRole,
+                str(batch.manifest_path.parent),
+            )
+            node.addChild(directory_node)
+
+        jobs = list_recent_jobs(root, limit=100)
+        job_root = QTreeWidgetItem(["最近 Job", f"最近 {len(jobs)} 个"])
+        self.data_tree.addTopLevelItem(job_root)
+        for job in jobs:
+            try:
+                relative = job.directory.relative_to(root)
+            except ValueError:
+                relative = job.directory
+            node = QTreeWidgetItem(
+                [job.job_id, f"{job.state.upper()} · {relative}"]
+            )
+            node.setData(0, Qt.ItemDataRole.UserRole, str(job.directory))
+            job_root.addChild(node)
+
+            for filename in _FORMAL_JOB_FILES:
+                path = job.directory / filename
+                if not path.exists():
+                    continue
+                child = QTreeWidgetItem([filename, _file_description(path)])
+                child.setData(0, Qt.ItemDataRole.UserRole, str(path))
+                node.addChild(child)
+
+        batch_root.setExpanded(True)
+        job_root.setExpanded(True)
+
+        if not batches and not jobs:
+            self.data_tree.addTopLevelItem(
+                QTreeWidgetItem(["暂无可识别的 Batch / Job", str(root)])
             )
         if hasattr(self, "batch_report_button"):
             self._update_result_actions()
 
-    def closeEvent(self, event) -> None:
+    def _selected_batch_manifest(self) -> Path | None:
+        item = self.data_tree.currentItem()
+        while item is not None:
+            raw_path = item.data(0, Qt.ItemDataRole.UserRole)
+            if raw_path:
+                path = Path(str(raw_path))
+                if path.is_file() and path.name == "batch.json":
+                    return path
+                if path.is_dir() and (path / "batch.json").exists():
+                    return path / "batch.json"
+            item = item.parent()
+        return None
+
+    def _update_result_actions(self) -> None:
+        if not hasattr(self, "batch_report_button"):
+            return
+        enabled = (
+            not self._capture_busy
+            and self._selected_batch_manifest() is not None
+        )
+        self.batch_report_button.setEnabled(enabled)
+
+    def _generate_batch_report(self) -> None:
+        manifest_path = self._selected_batch_manifest()
+        if manifest_path is None:
+            QMessageBox.information(self, "Batch 报告", "请先选择一个 Batch。")
+            return
+        try:
+            result = export_batch_report(manifest_path)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "生成报告失败",
+                f"{type(exc).__name__}: {exc}",
+            )
+            self._append_log(f"生成 Batch 报告失败：{type(exc).__name__}: {exc}")
+            return
+
+        self._append_log(
+            f"Batch HTML 报告：{result.report_html} · SVG {result.asset_count} 张"
+        )
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(result.report_html)))
+
+    def _open_session_log(self) -> None:
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(self._session_log.path)))
+
+    def _open_data_item(self, item: QTreeWidgetItem, _column: int) -> None:
+        raw_path = item.data(0, Qt.ItemDataRole.UserRole)
+        if not raw_path:
+            return
+        path = Path(str(raw_path))
+        if not path.exists():
+            QMessageBox.warning(self, "文件不存在", str(path))
+            return
+
+        try:
+            if path.is_dir():
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+                return
+            if path.suffix.lower() == ".npz":
+                TraceViewerDialog(path, self).exec()
+                return
+            if path.suffix.lower() == ".json":
+                JsonViewerDialog(path, self).exec()
+                return
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "打开数据失败",
+                f"{type(exc).__name__}: {exc}",
+            )
+
+    def _append_log(self, message: str) -> None:
         if hasattr(self, "_session_log"):
-            self._session_log.close()
+            try:
+                self._session_log.append(message)
+            except OSError:
+                pass
+        super()._append_log(message)
+
+    def closeEvent(self, event) -> None:
+        self._append_log("GUI 关闭请求")
         super().closeEvent(event)
+
+
+def _file_description(path: Path) -> str:
+    try:
+        size = path.stat().st_size
+    except OSError:
+        size = 0
+    return f"{path.suffix.lstrip('.').upper() or 'FILE'} · {size} B"

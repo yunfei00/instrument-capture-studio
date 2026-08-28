@@ -30,6 +30,7 @@ def test_dsox_runtime_settings_accept_valid_values():
     )
 
     assert settings.transport_timeout_ms == 10000
+    assert settings.single_timeout_s == 30.0
     assert settings.waveform_channel == 4
 
 
@@ -38,4 +39,12 @@ def test_dsox_runtime_settings_reject_invalid_channel():
         DSOXRuntimeSettings(
             resource="TCPIP0::DSOX::inst0::INSTR",
             waveform_channel=5,
+        )
+
+
+def test_dsox_runtime_settings_reject_invalid_single_timeout():
+    with pytest.raises(ValueError, match="Single timeout"):
+        DSOXRuntimeSettings(
+            resource="TCPIP0::DSOX::inst0::INSTR",
+            single_timeout_s=0.0,
         )

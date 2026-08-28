@@ -1,206 +1,154 @@
 # Phase 8 最终对齐与验收清单
 
-目标：在 v1.0.0 发布前冻结真实采集 Recipe / 正式 Schema v1，完成暂停恢复、时间遥测、异常恢复和 Windows 发布验收。
+目标：在 v1.0.0 发布前冻结真实采集 Recipe / Schema v1，保留已经完成的暂停恢复、异常恢复与发布能力，并完成最终 Single 一键流程真机确认。
 
-当前 Release Candidate：`1.0.0rc1`。
+当前版本：**v1.0.0 Final RC，尚未打正式 v1.0.0 Tag。**
 
-状态定义：
+## 0. 正式数据原则
 
-- PASS：已经通过
-- SOFTWARE COMPLETE：软件实现已完成，等待真机验收
-- PENDING：需要实现或补验
-- OPTIONAL：不阻塞 v1.0.0
+Phase 8 之前及 Recipe 重对齐期间产生的数据均视为开发调试数据，不要求向后兼容。最终配对 Recipe 的一个完整 Job 必须包含四份主数据：
 
-## 0. 正式数据基线
+```text
+spectrum_ext.csv / .npz
+waveform_sync.csv / .npz
+waveform_followup.csv / .npz
+spectrum_freerun.csv / .npz
+```
 
-Phase 8 之前产生的单次数据和 2100 次 Batch 数据均视为开发调试数据，不属于正式数据集，也不要求兼容。Phase 8A 已冻结新的正式 Schema v1，后续正式采集只认该格式。
+同时保存 `job.json` 与 `metadata.json`。正式 Schema 版本仍为 `1`，但最终数据契约以本文件和 `RECIPE_REALIGNMENT.md` 当前内容为准。
 
 ## A. 已通过的工程基线
 
-| 项目 | 状态 | 说明 |
-| --- | --- | --- |
-| FSW 真机连接与身份识别 | PASS | 已验证 |
-| DSO-X 真机连接与身份识别 | PASS | 已验证 |
-| 单次双仪表联合采集 | PASS | GUI 真机通过 |
-| FSW bounded timeout | PASS | 真机验证 |
-| FSW 运行中取消 / ABORt | PASS | 真机验证 |
-| 频率循环批量采集 | PASS | 700–800 MHz / 5 MHz / 21 点 |
-| 大规模稳定运行 | PASS | 每频点 100 次，共 2100 次完成；仅作为调试稳定性基线 |
-| 参数自动保存 / 恢复 | PASS | 用户验收 |
-| 配置模板 | PASS | 用户验收 |
-| Spectrum / Waveform 曲线预览 | PASS | 用户验收 |
-| Batch HTML 报告 / jobs.csv | PASS | 已切换到正式 Recipe 命名 |
-| 全量曲线导出 | PASS | 已切换到正式 Recipe 命名 |
-| 固定频率连续采集 | PASS | 用户验收 |
-| Windows GUI 打包 | PASS | CI PyInstaller 通过 |
-| 主动停止采集 | PASS | CANCELED 后可再次正常采集 |
+| 项目 | 状态 |
+| --- | --- |
+| FSW 真机连接 / 身份识别 | PASS |
+| DSO-X 真机连接 / 身份识别 | PASS |
+| FSW bounded timeout / ABORt | PASS |
+| 批量频率循环与大规模调试稳定性 | PASS |
+| 参数保存 / 恢复、模板、曲线预览 | PASS |
+| Batch HTML / CSV / 全量曲线导出 | PASS |
+| 固定频率重复采集 | PASS |
+| 暂停 / 继续 / 停止后续采 | PASS |
+| FSW / DSO-X 断线自动恢复 | PASS |
+| GUI 安全退出 | PASS |
+| 新同步流程 8 个硬件单步 | PASS |
 
-## B. Phase 8A：正式采集 Recipe / Schema v1
+## B. 最终配对 Recipe：全部使用 Single
 
-### B1. EXT 联合 + IMM 配对样本
+客户最终要求：**示波器保存波形前必须按一次 Single；频谱也必须是 Single Sweep。**
 
-一个逻辑样本固定执行：
+最终一个逻辑样本执行：
 
-1. 配置 FSW 当前中心频率 / Span / RBW / VBW。
-2. FSW 切换为 EXT，并先 ARM 进入单次采集等待状态。
-3. DSO-X 切换到 DELAY 组时基并执行第一次独立 DIGitize；该硬件事件触发 FSW EXT。
-4. 读取 DELAY 测量与本次 DELAY 波形。
-5. FSW 等待完成并读取 EXT Spectrum。
-6. DSO-X 切换到 CYCLE 组时基并执行第二次独立 DIGitize。
-7. 读取 CYCLE_COUNT 与第二次 CYCLE 波形。
-8. FSW 切换为 IMM，再采一份同频点 IMM Spectrum。
-9. 保存两份频谱、两份示波器波形、测量值与 metadata。
+1. 读取实时 FSW Sweep Time `T`。
+2. DSO-X：MAIN + CENTER，第一次 `Position=T/2`、`Scale=T/10`，并回读确认。
+3. FSW：Trigger=`EXT`，Continuous OFF，ARM 一次 Single Sweep。
+4. DSO-X：执行 `:SINGle`，等待 armed 和本次 acquisition 完成，再读取/保存 `waveform_sync`；该物理事件通过客户触发链路触发 FSW。
+5. 等待并读取本次 EXT Single Sweep，保存 `spectrum_ext`。
+6. DSO-X：配置第二次 Position/Scale，默认 `0.484 s` / `20e-9 s/div`，并回读确认。
+7. DSO-X：再次执行独立 `:SINGle`，完成后读取/保存 `waveform_followup`。
+8. FSW：Trigger=`IMM` / Free Run，Continuous OFF，只执行一次 Sweep，保存 `spectrum_freerun`。
+9. 四份主数据完整后才允许 `save_result` 成功。
 
-状态：**PASS**
-
-### B2. IMM 频谱单采
-
-只连接 FSW，Trigger 固定 IMM，不要求 DSO-X 在线。
-
-状态：**PASS**
-
-### B3. DSO-X 示波器单采
-
-只连接 DSO-X，不要求 FSW 在线；Waveform Channel 可选 CH1–CH4；仍按 DELAY / CYCLE 两组独立采集。
-
-调试期间出现过 `dsox_delay_group / acquire_word_waveform` VISA Timeout。最终定位为现场 USB→TCP 转接工具把 `:WAVeform:DATA?` 的二进制 IEEE 488.2 block 按 ASCII 文本转换，不是 DSO-X SCPI 指令、Trigger Sweep 或 Acquisition Type 本身的问题。转接工具已改为二进制透明模式。
-
-基于该误判加入的 DSO-X-only `AUTO + NORMal` 隐式改写已从正式 Workflow 撤销；平台仍保留 trigger/acquisition setter 作为正常驱动能力。USB/TCP 转接链路要求已记录到 instrument-automation-platform 的 DSO-X hardware transport 文档。
-
-状态：**PASS**
-
-### B4. 正式数据契约
-
-配对 Job 标准文件：
+正式节点：
 
 ```text
-YYYY-MM-DD/
-└── job_id/
-    ├── job.json
-    ├── metadata.json
-    ├── spectrum_ext.csv
-    ├── spectrum_ext.npz
-    ├── spectrum_imm.csv
-    ├── spectrum_imm.npz
-    ├── waveform_delay.csv
-    ├── waveform_delay.npz
-    ├── waveform_cycle.csv
-    └── waveform_cycle.npz
+fsw_sweep_time
+dsox_sync_config
+fsw_ext_arm
+dsox_sync_capture
+fsw_ext_read
+dsox_followup_config
+dsox_followup_capture
+fsw_freerun
+save_result
 ```
 
-`metadata.json` 记录 `schema_version = 1`、`recipe`、仪表身份与配置、EXT/IMM 摘要、DELAY/CYCLE_COUNT、两次波形 Channel/点数/时基、Batch/Job 关联和 `capture_complete`。
+状态：**SOFTWARE COMPLETE / FINAL INTEGRATED HARDWARE CHECK PENDING**。
 
-Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight 已全部对齐正式命名。
+## C. 单仪表 Recipe
 
-**2026-08-28：Phase 8A COMPLETE，正式 Schema v1 冻结。**
+### C1. IMM 频谱单采
 
-## C. Phase 8B：暂停 / 停止后继续 / 意外退出恢复
+只连接 FSW，Trigger=`IMM`；Continuous OFF，只执行一次 INIT/Sweep，完成后保存 `spectrum_imm`。
 
-已实现：
+状态：**SOFTWARE COMPLETE**。
 
-- 暂停只发生在完整逻辑样本边界。
-- PAUSED 时释放 FSW / DSO-X 会话，继续时重新建立会话。
-- 已完成样本不重复。
-- 主动停止后 Batch 可恢复。
-- GUI 重启后可发现未完成正式 Batch，并提供“继续上次任务”。
-- 半个逻辑样本不拼接；恢复时使用新的 `-resumeN` Job ID 完整重采。
-- 每个正式 Batch 保存 `<output_root>/batch-configs/<batch_id>.json` 冻结参数快照。
-- 参数快照包含 Recipe、执行方式、FSW 完整运行参数和 DSO-X 完整运行参数。
-- 重启续采以冻结快照为准，不使用当前临时 GUI / QSettings 参数。
-- 没有冻结参数快照的旧调试 Batch 不作为正式可续采任务。
+### C2. DSO-X 单采
 
-真机验收：
+只连接 DSO-X。DELAY 与 CYCLE 仍作为两个独立组；每组都先设置该组参数，再执行一次真实 `:SINGle`，等待完成后读取对应波形。两组不复用同一 acquisition。
 
-- [x] 固定频率重复 10 次，2～3 次后暂停，正确进入 PAUSED。
-- [x] 暂停后继续正常，已完成样本不重复。
-- [x] 中途主动停止，Batch 保留未完成状态。
-- [x] 关闭并重新启动 GUI，可识别“继续上次任务”。
-- [x] 续采前故意修改 GUI 参数，程序仍恢复原 Batch 的 Channel 和 DELAY/CYCLE 时基。
-- [x] 最终补齐 10/10。
-- [x] `batch-configs/<batch_id>.json` 存在并与实际任务一致。
+状态：**SOFTWARE COMPLETE / Single 改造后待快速真机确认**。
 
-**2026-08-27：Phase 8B COMPLETE。**
+## D. Single 实现验收要求
 
-## D. Phase 8C：节点耗时与性能统计
+DSO-X platform 的 Single 路径必须满足：
 
-已实现：
+- `:SINGle` 等效前面板 Single，不用 `:DIGitize` 冒充。
+- 发送 Single 前清除旧 Arm Event。
+- 用 `:AER?` 确认本次 acquisition 已进入 armed。
+- 用 `:OPERegister:CONDition?` 的 RUN 位确认本次 acquisition 已结束。
+- 结束后才读取 PREamble / byte order / unsigned / binary waveform。
+- Trigger 不到时必须有界超时并 `:STOP`，不能无限挂起。
+- 用户取消时协作式停止。
 
-- Job `started_at / finished_at / duration_ms`
-- 每个 Workflow Step 的 started/finished/duration/state/error
-- Batch 级 FSW 频率配置耗时
-- `fsw_ext_arm`
-- `dsox_delay_group`
-- `fsw_ext_read`
-- `dsox_cycle_group`
-- `fsw_imm`
-- `save_result`
-- 完整 Job
-- 成功 Job 的 average / P95 / max
-- HTML Batch Report 节点耗时统计
-- `timing.csv`
+FSW Single 路径必须满足：
 
-失败 / timeout Job 保留原始耗时用于诊断，但不混入正常性能分布。
+- EXT：Continuous OFF + 一次 INIT 后等待外部 Trigger。
+- IMM：Continuous OFF + 一次 INIT，完成后读取。
+- 不允许后台 Continuous Sweep 的任意当前 Trace 被当作正式样本保存。
 
-状态：**SOFTWARE COMPLETE / HARDWARE DATA REVIEW PENDING**
+## E. Batch 暂停 / 续采 / 冻结参数
 
-剩余动作：使用已通过的小批量数据核对 `timing.csv` / HTML 数值是否与实际采集时间量级一致。
+既有 Phase 8B 能力继续有效：
 
-## E. Phase 8D：异常与恢复验收
+- 只在完整逻辑样本边界暂停。
+- PAUSED 时释放仪表会话，继续时重连。
+- 已成功样本不重复。
+- 半个 Job 不拼接；恢复后新 Job 完整重采。
+- Batch 参数快照独立保存，重启续采优先使用冻结参数。
+- 新增的 DSO-X `single_timeout_s` 属于 Runtime Settings，会随冻结配置保存。
 
-软件侧 Release Hardening 已增加：
+状态：**COMPLETE，待最终 Recipe 小批量快速回归**。
 
-- 采集中关闭 GUI 不强制销毁 VISA Worker Thread。
-- 关闭请求转换为协作式停止，当前仪表操作安全结束并释放会话后自动退出。
-- 连接测试未完成时关闭 GUI，也等待测试结束后再退出。
-- 不使用 `QThread.terminate()` 等强制终止方式。
-- Release Window 继承 Phase 8B Window，保证冻结参数、暂停/继续和断点续采能力不回退。
-- CI Product GUI smoke test 直接实例化 Release Window，并检查安全关闭初始状态和前序 RC 控件。
+## F. 异常恢复 / 安全退出
 
-真机状态：
+既有 Phase 8D 能力继续有效：
 
-1. [x] FSW 物理网线断开 → 插回 → `RECONNECTING` 并自动恢复继续采集。
-2. [x] DSO-X 当前 USB→TCP Bridge 的 TCP/网线链路断开 → 恢复后自动重连并继续采集。
-3. [x] 保持断线直到最大重试次数耗尽，最终明确 `FAILED`，重试次数有界，不无限重试。
-4. [x] EXT Trigger Timeout 在 `fsw_ext_read` 正确超时并 `FAILED`，不误进入 `RECONNECTING`；FSW 安全 ABORt，触发线恢复后下一次单采正常。
-5. [x] 采集中关闭 GUI：先安全停止，再自动退出；重新启动后识别未完成任务并可继续。
+- 仪表通信断开时有界重连。
+- Trigger Timeout 不误判为断线。
+- 最大重试耗尽后明确 FAILED，不无限循环。
+- GUI 关闭使用协作式停止，不使用 `QThread.terminate()`。
+- 退出后未完成 Batch 可恢复。
 
-现场 USB→TCP Bridge 的 USB/转发器侧直接拔除会产生桥接层特有问题，本版本暂不作为 v1.0.0 阻塞项；其可靠性与桥接工具行为后续单独处理。
+状态：**COMPLETE，待最终 Recipe 快速回归**。
 
-**2026-08-28：Phase 8D COMPLETE。**
+## G. Release / CI 门槛
 
-## F. Phase 8E：Windows Release Candidate
+正式 v1.0.0 前必须全部满足：
 
-正式 v1.0.0 前至少确认：
+- [ ] 商业仓库 `pytest -q` 全绿。
+- [ ] FSW ARM/read platform regression 全绿。
+- [ ] DSO-X driver regression 全绿。
+- [ ] DSO-X `:SINGle` 专项 platform regression 全绿。
+- [ ] `phase8_preflight.py --self-check` 通过。
+- [ ] Final RC GUI offscreen smoke 通过。
+- [ ] PyInstaller Windows ZIP 构建通过。
+- [ ] 一次完整配对一键真机采集通过：两次 DSO-X Single + EXT Single Sweep + Free Run Single Sweep。
+- [ ] 一个配对 Job 的四份主数据均存在、可打开且互不覆盖。
+- [ ] 固定频率小批量运行通过，并快速检查暂停/继续。
+- [ ] `timing.csv` / HTML 的新节点耗时量级合理。
 
-1. `pytest -q` 通过。
-2. `python scripts\phase8_preflight.py --self-check` 通过。
-3. GitHub Actions Product GUI smoke test 通过。
-4. PyInstaller ZIP 构建通过。
-5. Windows EXE 能启动。
-6. EXE 下各 Recipe 所需仪表“测试连接”成功。
-7. EXE 下三种 Recipe 已完成小规模真机验收。
-8. 暂停 / 继续、停止后继续、异常退出恢复完成验收。
-9. 正式 Schema v1 的数据浏览、报告、导出、preflight 全部通过。
-10. Phase 8D 异常验收全部通过。
-11. Phase 8C `timing.csv` / HTML 真机时间量级复核通过。
+完成以上项目后才创建正式 `v1.0.0` Tag / GitHub Release。
 
-状态：**IN PROGRESS**
-
-## G. OPTIONAL，不阻塞 v1.0.0
+## H. 不阻塞 v1.0.0
 
 - USB→TCP Bridge 的 USB/转发器侧直接拔除恢复能力
 - PDF 报告
 - 更多仪表型号
 - 云端报告
 - 数据库索引
-- UI 主题 / 国际化进一步优化
+- 更完整的 UI 国际化
 
-## Phase 8 顺序
+## 当前结论
 
-- **8A：正式 Recipe + 正式 Schema v1：COMPLETE**
-- **8B：暂停 / 停止后继续 / 意外退出恢复：COMPLETE**
-- **8C：节点耗时与性能统计：软件完成，待真机数据复核**
-- **8D：断线 / Timeout / GUI 退出异常验收：COMPLETE**
-- **8E：RC EXE 与 v1.0.0 Release：IN PROGRESS**
-
-Phase 7 保持 COMPLETE。Phase 8A 已冻结正式 Schema v1；Phase 8D 已完成异常真机验收。后续只做时间数据复核、RC/EXE 验收和最终 v1.0.0 发布，不再扩展 v1.0.0 功能范围。
+Phase 8A–8D 的基础能力已经完成。Recipe 后续不再扩展功能范围；当前只处理 **Single 最终规则的 CI 收口 + 一次完整真机一键确认 + 小批量快速回归**，随后发布 v1.0.0。

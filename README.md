@@ -7,7 +7,7 @@ v1.0.0 第一版范围固定为：
 - Keysight DSO-X 3034A 示波器
 - Rohde & Schwarz FSW 频谱分析仪
 
-当前版本：`1.0.0rc1`，已经进入 Phase 8E Release Candidate 最终验收。
+当前版本：**v1.0.0 Final RC**。正式 Tag 尚未创建，等待最后一次一键真机确认。
 
 ## 项目定位
 
@@ -15,30 +15,25 @@ Instrument Capture Studio 负责多仪表联合采集产品层；底层通信、
 
 ## 当前能力
 
-- 正式 Recipe A：FSW EXT + DSO-X DELAY/CYCLE + 同频点 FSW IMM 配对样本
-- 正式 Recipe B：FSW IMM 频谱单采
-- 正式 Recipe C：DSO-X 示波器单采
-- 单次采集
-- 固定频率连续采集
-- 频率循环 / 批量联合采集
-- Batch 内两台仪表长连接复用
+- 正式 Recipe A：FSW EXT Single + DSO-X 两次 Single + FSW Free Run Single 的同步配对样本
+- 正式 Recipe B：FSW IMM / Free Run Single 频谱单采
+- 正式 Recipe C：DSO-X 示波器单采，每组波形采集前都执行真实 Single
+- 单次采集、固定频率重复采集、频率循环批量采集
+- Batch 内仪表长连接复用
 - 暂停 / 继续 / 停止后继续 / 程序重启断点续采
-- Batch 冻结参数快照，续采恢复原始仪表参数
+- Batch 冻结参数快照，续采恢复原始运行参数
 - 连接/通信异常自动重连与有界最大重试
-- FSW bounded timeout、运行中取消与安全 ABORt
-- EXT Trigger Timeout 与通信掉线区分，不误触发重连
+- FSW bounded timeout、取消与安全 ABORt
+- EXT Trigger Timeout 与通信掉线区分
 - 采集中关闭 GUI 的协作式安全退出
-- 参数自动保存 / 恢复
-- 命名实验配置模板
-- 正式 Schema v1 的 CSV / NPZ / metadata.json / job.json / batch.json
+- 参数自动保存 / 恢复、命名实验配置模板
+- CSV / NPZ / metadata.json / job.json / batch.json
 - Spectrum / Waveform 曲线预览
 - Batch HTML 报告、jobs.csv、timing.csv
 - 全量正式曲线 SVG 批量导出
-- 长期会话日志
-- Windows PySide6 GUI
-- Windows PyInstaller 自动构建与 Tag Release
+- Windows PySide6 GUI / PyInstaller 自动构建与 Tag Release
 
-2026-08-26 已完成真实大规模调试稳定性验证：700–800 MHz、5 MHz 步长、21 个频点、每频点 100 次，共 2100 次完整联合采集。该批数据属于开发调试数据，不属于正式数据集。
+此前 700–800 MHz、5 MHz 步长、21 点、每频点 100 次的 2100 次运行属于开发调试稳定性验证，不属于最终正式数据集。
 
 ## Windows 本地运行 GUI
 
@@ -71,39 +66,45 @@ IMM频谱单采
 示波器单采
 ```
 
-配对样本支持执行方式：
+配对样本支持单次、固定频率重复、频率循环。IMM 单采和示波器单采在 v1.0.0 使用单次执行。
+
+## 最终配对样本顺序
+
+设实时 FSW Sweep Time 为 `T`：
 
 ```text
-单次采集
-固定频率连续采集
-频率循环采集
-```
-
-IMM 单采和示波器单采在 v1.0.0 先使用单次采集。
-
-## 正式 EXT + IMM 配对样本顺序
-
-```text
-FSW 配置当前频点
+读取 FSW Sweep Time T
     ↓
-FSW EXT ARM
+DSO-X 第一次窗口：MAIN + CENTER
+Position = T/2
+Scale    = T/10
     ↓
-DSO-X DELAY 组：5e-7 s/div，第一次独立 DIGitize
+FSW EXT + Continuous OFF + ARM 一次 Single Sweep
     ↓
-读取 DELAY + waveform_delay
+DSO-X :SINGle #1
+等待 armed → 等待 acquisition 完成
     ↓
-FSW EXT wait/read
+读取/保存 waveform_sync
+同时该物理事件通过触发链路触发 FSW
     ↓
-DSO-X CYCLE 组：1e-4 s/div，第二次独立 DIGitize
+读取 FSW EXT Single → spectrum_ext
     ↓
-读取 CYCLE_COUNT + waveform_cycle
+DSO-X 第二次窗口
+默认 Position = 0.484 s
+默认 Scale    = 20e-9 s/div
     ↓
-FSW IMM
+DSO-X :SINGle #2
+等待完成 → waveform_followup
+    ↓
+FSW Free Run / IMM
+Continuous OFF + 一次 Sweep
+    ↓
+spectrum_freerun
     ↓
 Save Result
 ```
 
-一个配对 Job 是一个完整逻辑训练样本；EXT、IMM、DELAY 波形、CYCLE 波形不能跨 Job 拼接。
+客户要求的关键规则是：**示波器每次保存波形前必须执行一次前面板等效 Single；频谱每份数据也必须来自一次 Single Sweep。** 正式 DSO-X 路径使用 `:SINGle`，不使用 `:DIGitize` 冒充前面板 Single。
 
 ## 正式 Schema v1
 
@@ -116,12 +117,12 @@ YYYY-MM-DD/
     ├── metadata.json
     ├── spectrum_ext.csv
     ├── spectrum_ext.npz
-    ├── spectrum_imm.csv
-    ├── spectrum_imm.npz
-    ├── waveform_delay.csv
-    ├── waveform_delay.npz
-    ├── waveform_cycle.csv
-    └── waveform_cycle.npz
+    ├── waveform_sync.csv
+    ├── waveform_sync.npz
+    ├── waveform_followup.csv
+    ├── waveform_followup.npz
+    ├── spectrum_freerun.csv
+    └── spectrum_freerun.npz
 ```
 
 IMM-only：
@@ -151,43 +152,20 @@ batches/YYYY-MM-DD/<batch_id>/batch.json
 batch-configs/<batch_id>.json
 ```
 
-`batch-configs` 保存正式续采使用的冻结仪表参数快照。
-
-## Phase 8 发布前检查
-
-运行环境自检：
+## 发布前检查
 
 ```powershell
 python scripts\phase8_preflight.py --self-check
-```
-
-验证最近一个真实 Batch 的数据完整性：
-
-```powershell
 python scripts\phase8_preflight.py --data-root <数据目录>
 ```
 
-Batch HTML 报告同时输出 `jobs.csv` 和 `timing.csv`，用于最终数据与节点耗时复核。
+最终 v1.0.0 前只剩：CI 全绿、一键完整配对真机确认、小批量快速回归、Windows RC 启动/数据检查。8 个工程单步已经完成，不需要重新做。
 
 ## 文档
 
+- `docs/RECIPE_REALIGNMENT.md`：最终真实硬件顺序与 Single 规则
+- `docs/PHASE8_ACCEPTANCE.md`：v1.0.0 最终验收清单
 - `docs/USER_GUIDE.md`：用户使用说明
 - `docs/DEPLOYMENT.md`：Windows 部署与发布
-- `docs/PHASE8_ACCEPTANCE.md`：v1.0.0 最终验收清单
 - `docs/ARCHITECTURE.md`：架构边界
-- `docs/ROADMAP.md`：完整开发进度
-
-## 当前阶段
-
-- Phase 1：完成
-- Phase 2：完成
-- Phase 3：完成
-- Phase 4：完成
-- Phase 5：完成工程基线
-- Phase 6：完成基线并真机验收
-- Phase 7：完成，包含 2100 次真机调试稳定性验证
-- Phase 8A：完成，正式 Recipe / Schema v1 冻结
-- Phase 8B：完成，暂停与断点续采真机通过
-- Phase 8C：软件完成，等待最终 timing.csv / HTML 真机时间量级复核
-- Phase 8D：完成，断线、最大重试、Trigger Timeout、安全退出真机通过
-- Phase 8E：进行中，Release Candidate Windows 构建与最终发布验收
+- `docs/ROADMAP.md`：开发进度

@@ -8,14 +8,37 @@ and (for an explicit frequency-sweep execution mode) center/span changes.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Callable
 
-from instrument_capture_studio.adapters.dsox3034a import DSOX3034AAdapter
+from instrument_capture_studio.adapters.dsox3034a import (
+    DSOX3034AAdapter,
+    DSOX3034AConfig,
+)
 from instrument_capture_studio.adapters.fsw import FSWAdapter
 from instrument_capture_studio.core.results import WaveformResult
 
 
 CancelCheck = Callable[[], bool]
+
+
+@dataclass(frozen=True)
+class FormalDSOXConfig(DSOX3034AConfig):
+    """Final paired-recipe DSO-X timing values.
+
+    The first window is derived from the live FSW Sweep Time. Only the second
+    independent scope window needs operator-configurable persisted values.
+    """
+
+    followup_position_s: float = 0.484
+    followup_scale_s: float = 20e-9
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.followup_position_s < 0:
+            raise ValueError("followup_position_s must not be negative")
+        if self.followup_scale_s <= 0:
+            raise ValueError("followup_scale_s must be greater than 0")
 
 
 class FormalFSWAdapter(FSWAdapter):

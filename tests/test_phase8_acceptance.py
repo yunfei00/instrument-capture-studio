@@ -9,19 +9,19 @@ _PAIRED_FILES = (
     "metadata.json",
     "spectrum_ext.csv",
     "spectrum_ext.npz",
-    "spectrum_imm.csv",
-    "spectrum_imm.npz",
-    "waveform_delay.csv",
-    "waveform_delay.npz",
-    "waveform_cycle.csv",
-    "waveform_cycle.npz",
+    "waveform_sync.csv",
+    "waveform_sync.npz",
+    "waveform_followup.csv",
+    "waveform_followup.npz",
+    "spectrum_freerun.csv",
+    "spectrum_freerun.npz",
 )
 
 
 def _make_batch(tmp_path: Path, *, missing: str | None = None) -> Path:
     root = tmp_path / "data"
     job_id = "batch-demo-f001-n0001"
-    job_dir = root / "2026-08-26" / job_id
+    job_dir = root / "2026-08-28" / job_id
     job_dir.mkdir(parents=True)
     for filename in _PAIRED_FILES:
         if filename == missing:
@@ -34,7 +34,7 @@ def _make_batch(tmp_path: Path, *, missing: str | None = None) -> Path:
         else:
             (job_dir / filename).write_text("{}", encoding="utf-8")
 
-    batch_dir = root / "batches" / "2026-08-26" / "batch-demo"
+    batch_dir = root / "batches" / "2026-08-28" / "batch-demo"
     batch_dir.mkdir(parents=True)
     manifest = {
         "batch_id": "batch-demo",
@@ -67,10 +67,10 @@ def test_batch_acceptance_passes_with_formal_paired_artifacts(tmp_path):
 
 def test_batch_acceptance_reports_missing_recipe_artifact(tmp_path):
     report = validate_batch_artifacts(
-        _make_batch(tmp_path, missing="waveform_cycle.npz")
+        _make_batch(tmp_path, missing="waveform_followup.npz")
     )
 
     assert report.passed is False
     assert report.missing_files == (
-        "batch-demo-f001-n0001: waveform_cycle.npz",
+        "batch-demo-f001-n0001: waveform_followup.npz",
     )

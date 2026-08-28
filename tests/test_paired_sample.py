@@ -1,8 +1,4 @@
-from instrument_capture_studio.core.results import (
-    MeasurementResult,
-    SpectrumResult,
-    WaveformResult,
-)
+from instrument_capture_studio.core.results import SpectrumResult, WaveformResult
 from instrument_capture_studio.workflows.paired_sample import (
     acquire_ext_imm_paired_sample,
 )
@@ -12,8 +8,12 @@ class FakeFSW:
     def __init__(self, calls):
         self.calls = calls
 
-    def arm_spectrum(self, trigger_source="EXT"):
-        self.calls.append(("fsw", "arm", trigger_source))
+    def read_sweep_time_s(self):
+        self.calls.append(("fsw", "sweep_time"))
+        return 2e-5
+
+    def arm_external_current_setup(self):
+        self.calls.append(("fsw", "arm", "EXT"))
 
     def read_armed_spectrum(
         self,
@@ -29,18 +29,17 @@ class FakeFSW:
             metadata={"trigger_source": trigger_source},
         )
 
-    def acquire_spectrum_with_trigger(
+    def acquire_freerun_current_setup(
         self,
-        trigger_source,
         *,
         timeout_s=None,
         cancel_check=None,
     ):
-        self.calls.append(("fsw", "acquire", trigger_source, timeout_s))
+        self.calls.append(("fsw", "freerun", "IMM", timeout_s))
         return SpectrumResult(
             frequencies_hz=[700e6],
             amplitudes_dbm=[-55.0],
-            metadata={"trigger_source": trigger_source},
+            metadata={"trigger_source": "IMM"},
         )
 
 
@@ -48,34 +47,36 @@ class FakeDSOX:
     def __init__(self, calls):
         self.calls = calls
 
-    def acquire_delay_group(self):
-        self.calls.append(("dsox", "delay_group"))
-        return (
-            MeasurementResult("DELAY", 1e-6, "s"),
-            WaveformResult(
-                channel="CH1",
-                time_s=[0.0, 1e-9],
-                voltage_v=[0.0, 1.0],
-                sample_rate_hz=1e9,
-                metadata={"sample_kind": "delay"},
-            ),
+    def configure_sync_window(self, sweep_time_s):
+        self.calls.append(("dsox", "sync_config", sweep_time_s))
+        return {"position_readback_s": sweep_time_s / 2}
+
+    def acquire_sync_waveform(self):
+        self.calls.append(("dsox", "sync_capture"))
+        return WaveformResult(
+            channel="CH1",
+            time_s=[0.0, 1e-9],
+            voltage_v=[0.0, 1.0],
+            sample_rate_hz=1e9,
+            metadata={"sample_kind": "sync"},
         )
 
-    def acquire_cycle_group(self):
-        self.calls.append(("dsox", "cycle_group"))
-        return (
-            MeasurementResult("CYCLE_COUNT", 2.0, "count"),
-            WaveformResult(
-                channel="CH1",
-                time_s=[0.0, 1e-6],
-                voltage_v=[0.0, 0.5],
-                sample_rate_hz=1e6,
-                metadata={"sample_kind": "cycle_count"},
-            ),
+    def configure_followup_window(self):
+        self.calls.append(("dsox", "followup_config"))
+        return {"position_readback_s": 0.484}
+
+    def acquire_followup_waveform(self):
+        self.calls.append(("dsox", "followup_capture"))
+        return WaveformResult(
+            channel="CH1",
+            time_s=[0.0, 1e-6],
+            voltage_v=[0.0, 0.5],
+            sample_rate_hz=1e6,
+            metadata={"sample_kind": "followup"},
         )
 
 
-def test_ext_is_armed_before_first_dsox_group_and_imm_is_last():
+def test_final_paired_sample_follows_verified_hardware_order():
     calls = []
     sample = acquire_ext_imm_paired_sample(
         FakeFSW(calls),
@@ -84,13 +85,17 @@ def test_ext_is_armed_before_first_dsox_group_and_imm_is_last():
     )
 
     assert calls == [
+        ("fsw", "sweep_time"),
+        ("dsox", "sync_config", 2e-5),
         ("fsw", "arm", "EXT"),
-        ("dsox", "delay_group"),
+        ("dsox", "sync_capture"),
         ("fsw", "read_ext", "EXT", 5.0),
-        ("dsox", "cycle_group"),
-        ("fsw", "acquire", "IMM", 5.0),
+        ("dsox", "followup_config"),
+        ("dsox", "followup_capture"),
+        ("fsw", "freerun", "IMM", 5.0),
     ]
+    assert sample.sweep_time_s == 2e-5
     assert sample.spectrum_ext.metadata["trigger_source"] == "EXT"
-    assert sample.spectrum_imm.metadata["trigger_source"] == "IMM"
-    assert sample.waveform_delay.metadata["sample_kind"] == "delay"
-    assert sample.waveform_cycle.metadata["sample_kind"] == "cycle_count"
+    assert sample.spectrum_freerun.metadata["trigger_source"] == "IMM"
+    assert sample.waveform_sync.metadata["sample_kind"] == "sync"
+    assert sample.waveform_followup.metadata["sample_kind"] == "followup"

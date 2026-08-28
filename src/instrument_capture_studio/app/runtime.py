@@ -42,6 +42,7 @@ class DSOXRuntimeSettings:
     resource: str
     backend: str | None = None
     transport_timeout_ms: int = 10000
+    single_timeout_s: float = 30.0
     delay_source1: str = "CHANnel1"
     delay_source2: str = "CHANnel2"
     delay_edge1: str = "+1"
@@ -61,6 +62,8 @@ class DSOXRuntimeSettings:
             raise ValueError("DSO-X resource must not be empty")
         if self.transport_timeout_ms <= 0:
             raise ValueError("DSO-X transport timeout must be greater than 0")
+        if self.single_timeout_s <= 0:
+            raise ValueError("DSO-X Single timeout must be greater than 0")
         if self.waveform_channel not in {1, 2, 3, 4}:
             raise ValueError("waveform_channel must be between 1 and 4")
         if self.delay_timebase_scale_s <= 0:
@@ -124,5 +127,6 @@ def build_dsox_adapter(settings: DSOXRuntimeSettings) -> FormalDSOXAdapter:
             cycle_timebase_scale_s=settings.cycle_timebase_scale_s,
             followup_position_s=settings.followup_position_s,
             followup_scale_s=settings.followup_scale_s,
+            single_timeout_s=settings.single_timeout_s,
         ),
     )

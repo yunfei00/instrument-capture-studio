@@ -124,15 +124,17 @@ FSW Single 路径必须满足：
 
 ## G. Release / CI 门槛
 
+2026-08-28 Final RC CI run `33159379927` 已完整通过：商业 pytest、FSW regression、DSO-X driver + Single regression、preflight、GUI smoke、PyInstaller、ZIP artifact 均成功。
+
 正式 v1.0.0 前必须全部满足：
 
-- [ ] 商业仓库 `pytest -q` 全绿。
-- [ ] FSW ARM/read platform regression 全绿。
-- [ ] DSO-X driver regression 全绿。
-- [ ] DSO-X `:SINGle` 专项 platform regression 全绿。
-- [ ] `phase8_preflight.py --self-check` 通过。
-- [ ] Final RC GUI offscreen smoke 通过。
-- [ ] PyInstaller Windows ZIP 构建通过。
+- [x] 商业仓库 `pytest -q` 全绿。
+- [x] FSW ARM/read platform regression 全绿。
+- [x] DSO-X driver regression 全绿。
+- [x] DSO-X `:SINGle` 专项 platform regression 全绿。
+- [x] `phase8_preflight.py --self-check` 通过。
+- [x] Final RC GUI offscreen smoke 通过。
+- [x] PyInstaller Windows ZIP 构建通过。
 - [ ] 一次完整配对一键真机采集通过：两次 DSO-X Single + EXT Single Sweep + Free Run Single Sweep。
 - [ ] 一个配对 Job 的四份主数据均存在、可打开且互不覆盖。
 - [ ] 固定频率小批量运行通过，并快速检查暂停/继续。
@@ -151,4 +153,4 @@ FSW Single 路径必须满足：
 
 ## 当前结论
 
-Phase 8A–8D 的基础能力已经完成。Recipe 后续不再扩展功能范围；当前只处理 **Single 最终规则的 CI 收口 + 一次完整真机一键确认 + 小批量快速回归**，随后发布 v1.0.0。
+Phase 8A–8D 的基础能力已经完成，Final RC 软件/CI 已收口。当前只剩 **完整一键真机确认 + 四份数据检查 + 小批量暂停/继续快速回归 + timing 复核**，随后发布 v1.0.0。

@@ -9,13 +9,13 @@ def _job_files(job_dir, frequency_hz, job_index):
     job_dir.mkdir(parents=True)
     files = {
         "spectrum_ext": job_dir / "spectrum_ext.npz",
-        "spectrum_imm": job_dir / "spectrum_imm.npz",
-        "waveform_delay": job_dir / "waveform_delay.npz",
-        "waveform_cycle": job_dir / "waveform_cycle.npz",
+        "waveform_sync": job_dir / "waveform_sync.npz",
+        "waveform_followup": job_dir / "waveform_followup.npz",
+        "spectrum_freerun": job_dir / "spectrum_freerun.npz",
     }
     for path, level in (
         (files["spectrum_ext"], -40.0),
-        (files["spectrum_imm"], -55.0),
+        (files["spectrum_freerun"], -55.0),
     ):
         np.savez_compressed(
             path,
@@ -25,8 +25,8 @@ def _job_files(job_dir, frequency_hz, job_index):
             amplitude_dbm=np.array([-80.0, level, -70.0]),
         )
     for path, scale in (
-        (files["waveform_delay"], 1e-7),
-        (files["waveform_cycle"], 1e-5),
+        (files["waveform_sync"], 2e-6),
+        (files["waveform_followup"], 20e-9),
     ):
         np.savez_compressed(
             path,
@@ -36,6 +36,17 @@ def _job_files(job_dir, frequency_hz, job_index):
 
     job_duration = 100.0 * job_index
     step_base = 10.0 * job_index
+    step_names = (
+        "fsw_sweep_time",
+        "dsox_sync_config",
+        "fsw_ext_arm",
+        "dsox_sync_capture",
+        "fsw_ext_read",
+        "dsox_followup_config",
+        "dsox_followup_capture",
+        "fsw_freerun",
+        "save_result",
+    )
     (job_dir / "job.json").write_text(
         json.dumps(
             {
@@ -45,35 +56,11 @@ def _job_files(job_dir, frequency_hz, job_index):
                 "duration_ms": job_duration,
                 "steps": [
                     {
-                        "name": "fsw_ext_arm",
+                        "name": name,
                         "state": "succeeded",
-                        "duration_ms": step_base,
-                    },
-                    {
-                        "name": "dsox_delay_group",
-                        "state": "succeeded",
-                        "duration_ms": step_base * 2,
-                    },
-                    {
-                        "name": "fsw_ext_read",
-                        "state": "succeeded",
-                        "duration_ms": step_base * 3,
-                    },
-                    {
-                        "name": "dsox_cycle_group",
-                        "state": "succeeded",
-                        "duration_ms": step_base * 4,
-                    },
-                    {
-                        "name": "fsw_imm",
-                        "state": "succeeded",
-                        "duration_ms": step_base * 5,
-                    },
-                    {
-                        "name": "save_result",
-                        "state": "succeeded",
-                        "duration_ms": step_base / 2,
-                    },
+                        "duration_ms": step_base * (index + 1),
+                    }
+                    for index, name in enumerate(step_names)
                 ],
             }
         ),
@@ -83,12 +70,12 @@ def _job_files(job_dir, frequency_hz, job_index):
 
 
 def test_exports_large_batch_summary_with_representative_plots(tmp_path):
-    batch_dir = tmp_path / "batches" / "2026-08-26" / "batch-001"
+    batch_dir = tmp_path / "batches" / "2026-08-28" / "batch-001"
     batch_dir.mkdir(parents=True)
 
     jobs = []
     for index, frequency_hz in enumerate((700e6, 705e6), start=1):
-        job_dir = tmp_path / "2026-08-26" / f"capture-{index:03d}"
+        job_dir = tmp_path / "2026-08-28" / f"capture-{index:03d}"
         jobs.append(
             {
                 "job_id": job_dir.name,
@@ -98,8 +85,8 @@ def test_exports_large_batch_summary_with_representative_plots(tmp_path):
                 "capture_index": 1,
                 "attempt": 1,
                 "frequency_config_duration_ms": float(index),
-                "started_at": "2026-08-26T00:00:00+00:00",
-                "finished_at": "2026-08-26T00:00:01+00:00",
+                "started_at": "2026-08-28T00:00:00+00:00",
+                "finished_at": "2026-08-28T00:00:01+00:00",
                 "error": None,
                 "output_files": _job_files(job_dir, frequency_hz, index),
             }
@@ -112,8 +99,8 @@ def test_exports_large_batch_summary_with_representative_plots(tmp_path):
                 "schema_version": 1,
                 "batch_id": "batch-001",
                 "state": "succeeded",
-                "started_at": "2026-08-26T00:00:00+00:00",
-                "finished_at": "2026-08-26T00:00:02+00:00",
+                "started_at": "2026-08-28T00:00:00+00:00",
+                "finished_at": "2026-08-28T00:00:02+00:00",
                 "completed_captures": 2,
                 "failed_jobs": 0,
                 "recovery_events": [],
@@ -145,9 +132,9 @@ def test_exports_large_batch_summary_with_representative_plots(tmp_path):
     assert "700" in html
     assert "705" in html
     assert "EXT" in html
-    assert "IMM" in html
-    assert "DELAY" in html
-    assert "CYCLE" in html
+    assert "同步波形" in html
+    assert "第二次波形" in html
+    assert "Free Run" in html
     assert "节点耗时统计" in html
     assert "P95" in html
     assert "FSW EXT ARM" in html
@@ -157,7 +144,10 @@ def test_exports_large_batch_summary_with_representative_plots(tmp_path):
     timing_csv = result.timing_csv.read_text(encoding="utf-8-sig")
     assert "job_total" in timing_csv
     assert "frequency_config" in timing_csv
+    assert "fsw_sweep_time" in timing_csv
+    assert "dsox_sync_capture" in timing_csv
     assert "fsw_ext_read" in timing_csv
+    assert "fsw_freerun" in timing_csv
 
     assets = sorted((result.report_html.parent / "assets").glob("*.svg"))
     assert len(assets) == 8

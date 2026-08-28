@@ -106,7 +106,7 @@ Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格�
 
 状态：**IN PROGRESS**
 
-当前版本：`0.9.0rc1`
+当前版本：`1.0.0rc1`
 
 ### Phase 8A - 正式 Recipe + 正式数据 Schema v1
 

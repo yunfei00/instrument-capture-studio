@@ -9,24 +9,32 @@ from instrument_capture_studio.core.results import (
 
 @dataclass
 class CaptureContext:
-    """一次采集任务运行期间共享的数据上下文。
+    """Shared data collected during one logical Capture Job.
 
-    正式采集格式从 Phase 8 调试结束后重新从 schema v1 起步。EXT 配对
-    样本明确包含两份频谱（EXT/IMM）和两次独立示波器采集
-    （DELAY/CYCLE_COUNT），不再把两次示波器采集合并成一个 waveform。
+    The final paired recipe contains exactly four primary traces:
 
-    ``spectrum`` / ``waveform`` 暂时仅供旧的内部调试 workflow 使用；正式
-    Recipe 使用 ``spectrum_ext`` / ``spectrum_imm``、``waveform_delay`` /
-    ``waveform_cycle``。
+    - ``spectrum_ext``: FSW spectrum triggered by the first DSO-X acquisition.
+    - ``waveform_sync``: DSO-X waveform from that same synchronization event.
+    - ``waveform_followup``: a second independent DSO-X waveform after applying
+      the operator-configurable follow-up Position/Scale window.
+    - ``spectrum_freerun``: final FSW Free Run / IMM spectrum.
+
+    Legacy fields remain only for the standalone DSO-X recipe and internal
+    regression plumbing. They are not part of the final paired data contract.
     """
 
     spectrum: SpectrumResult | None = None
     spectrum_ext: SpectrumResult | None = None
+    spectrum_freerun: SpectrumResult | None = None
     spectrum_imm: SpectrumResult | None = None
 
+    waveform: WaveformResult | None = None
+    waveform_sync: WaveformResult | None = None
+    waveform_followup: WaveformResult | None = None
+
+    # Standalone DSO-X legacy recipe fields.
     delay: MeasurementResult | None = None
     cycle_count: MeasurementResult | None = None
-    waveform: WaveformResult | None = None
     waveform_delay: WaveformResult | None = None
     waveform_cycle: WaveformResult | None = None
 
@@ -34,12 +42,11 @@ class CaptureContext:
 
     @property
     def schema_version(self) -> int:
-        # 正式数据格式重新从 v1 开始；调试数据不承担兼容约束。
         return 1
 
     @property
     def is_complete(self) -> bool:
-        """旧内部联合采集完整性，仅用于尚未删除的调试 workflow。"""
+        """Legacy internal combined-workflow completeness."""
         return all(
             (
                 self.spectrum is not None,
@@ -51,15 +58,13 @@ class CaptureContext:
 
     @property
     def is_paired_complete(self) -> bool:
-        """正式 EXT+IMM 训练样本完整性。"""
+        """Final synchronized paired-sample completeness."""
         return all(
             (
                 self.spectrum_ext is not None,
-                self.spectrum_imm is not None,
-                self.delay is not None,
-                self.cycle_count is not None,
-                self.waveform_delay is not None,
-                self.waveform_cycle is not None,
+                self.waveform_sync is not None,
+                self.waveform_followup is not None,
+                self.spectrum_freerun is not None,
             )
         )
 

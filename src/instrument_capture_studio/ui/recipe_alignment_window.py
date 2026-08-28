@@ -24,7 +24,7 @@ class MainWindow(ReleaseWindow):
         self.followup_position_edit.textChanged.connect(self._update_recipe_summary)
         self.followup_scale_edit.textChanged.connect(self._update_recipe_summary)
         self._sync_recipe_controls()
-        self.statusBar().showMessage("就绪 · v1.0.0 RC2 · 最终同步采集流程")
+        self.statusBar().showMessage("就绪 · v1.0.0 Final RC · Single 同步采集流程")
 
     def _install_final_paired_timing_controls(self) -> None:
         params = self.waveform_channel_spin.parentWidget()
@@ -126,15 +126,28 @@ class MainWindow(ReleaseWindow):
                 ExecutionMode.FIXED_REPEAT: "固定频率重复",
             }[mode]
             self.recipe_summary_label.setText(
-                f"{mode_text} · 读取 FSW Sweep Time T → DSO-X 第一次 "
-                f"Position=T/2、Scale=T/10 → FSW EXT ARM → CH{channel} 第一次采集/触发 → "
-                f"读取 EXT → 第二次 Position={position}s、Scale={scale}s/div → "
-                "第二次示波器采集 → FSW Free Run。"
+                f"{mode_text} · 读取 FSW Sweep Time T → DSO-X 第一次窗口 "
+                f"Position=T/2、Scale=T/10 → FSW EXT Single ARM → "
+                f"DSO-X CH{channel} Single #1，完成后读取/保存并触发 FSW → "
+                f"读取 EXT Single 频谱 → 第二次 Position={position}s、Scale={scale}s/div → "
+                "DSO-X Single #2，完成后读取/保存 → FSW Free Run Single。"
             )
             return
 
-        # Preserve the standalone Recipe summaries from the Phase-8 base.
+        # Preserve the standalone Recipe summaries from the Phase-8 base, but
+        # make the customer Single requirement explicit to the operator.
         super()._update_recipe_summary(*_args)
+        if recipe is CaptureRecipe.IMM_SPECTRUM_ONLY:
+            self.recipe_summary_label.setText(
+                "只连接 FSW · Trigger=IMM · 每个 Job 只执行一次 Single Sweep，完成后保存频谱。"
+            )
+        elif recipe is CaptureRecipe.DSOX_ONLY:
+            delay_scale = self.delay_timebase_scale_edit.text().strip()
+            cycle_scale = self.cycle_timebase_scale_edit.text().strip()
+            self.recipe_summary_label.setText(
+                f"只连接 DSO-X · CH{channel} · DELAY {delay_scale}s/div：Single 后保存；"
+                f"CYCLE {cycle_scale}s/div：再次 Single 后保存。两次采集互相独立。"
+            )
 
     def _set_capture_busy(self, busy: bool) -> None:
         super()._set_capture_busy(busy)

@@ -46,27 +46,28 @@ def build_capture_metadata(
     *,
     captured_at: datetime | None = None,
 ) -> dict[str, Any]:
-    """把 CaptureContext 转换为正式 schema-v1 Job 元数据。
-
-    调试数据无需向后兼容，因此正式格式从 schema v1 重新开始。Recipe 明确
-    决定一个 Job 应包含哪些物理采集；EXT 配对样本有两份频谱和两次独立
-    示波器采集。
-    """
+    """Convert CaptureContext to the final schema-v1 Job metadata."""
 
     timestamp = captured_at or datetime.now()
     recipe = str(context.metadata.get("recipe") or "legacy_debug")
 
-    metadata: dict[str, Any] = {
-        "schema_version": 1,
-        "job_id": job_id,
-        "captured_at": timestamp.isoformat(),
-        "recipe": recipe,
-        "capture_complete": context.capture_complete,
-        "spectra": {
+    if recipe == "ext_imm_pair":
+        spectra = {
+            "ext": _spectrum_summary(context.spectrum_ext),
+            "freerun": _spectrum_summary(context.spectrum_freerun),
+        }
+        oscilloscope = {
+            "waveform_channel": context.metadata.get("waveform_channel"),
+            "sync": _waveform_summary(context.waveform_sync),
+            "followup": _waveform_summary(context.waveform_followup),
+            "timing_windows": context.metadata.get("timing_windows"),
+        }
+    else:
+        spectra = {
             "ext": _spectrum_summary(context.spectrum_ext),
             "imm": _spectrum_summary(context.spectrum_imm),
-        },
-        "oscilloscope": {
+        }
+        oscilloscope = {
             "waveform_channel": context.metadata.get("waveform_channel"),
             "delay": {
                 "measurement": _measurement_summary(context.delay),
@@ -76,14 +77,19 @@ def build_capture_metadata(
                 "measurement": _measurement_summary(context.cycle_count),
                 "waveform": _waveform_summary(context.waveform_cycle),
             },
-        },
+        }
+
+    metadata: dict[str, Any] = {
+        "schema_version": 1,
+        "job_id": job_id,
+        "captured_at": timestamp.isoformat(),
+        "recipe": recipe,
+        "capture_complete": context.capture_complete,
+        "spectra": spectra,
+        "oscilloscope": oscilloscope,
         "metadata": context.metadata,
     }
 
-    # Temporary internal debug workflows still use generic fields. Keep them
-    # only so the existing regression suite can exercise old plumbing; formal
-    # Recipe data never relies on these names and no historical files need to
-    # remain readable.
     if context.spectrum is not None:
         metadata["debug_spectrum"] = _spectrum_summary(context.spectrum)
     if context.waveform is not None:
@@ -97,7 +103,6 @@ def build_capture_metadata(
 
 
 def write_capture_metadata(path: Path, metadata: dict[str, Any]) -> None:
-    """将 Job 元数据写入 UTF-8 JSON 文件。"""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as file:
@@ -106,6 +111,5 @@ def write_capture_metadata(path: Path, metadata: dict[str, Any]) -> None:
 
 
 def load_capture_metadata(path: Path) -> dict[str, Any]:
-    """重新加载 metadata.json。"""
     with Path(path).open("r", encoding="utf-8") as file:
         return json.load(file)

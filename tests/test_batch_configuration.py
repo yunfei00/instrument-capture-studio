@@ -26,6 +26,7 @@ def _configuration():
         dsox_settings=DSOXRuntimeSettings(
             resource="TCPIP0::scope::inst0::INSTR",
             transport_timeout_ms=12000,
+            single_timeout_s=37.0,
             delay_source1="CHANnel1",
             delay_source2="CHANnel2",
             delay_edge1="+1",
@@ -34,6 +35,8 @@ def _configuration():
             waveform_channel=1,
             delay_timebase_scale_s=5e-7,
             cycle_timebase_scale_s=1e-4,
+            followup_position_s=0.484,
+            followup_scale_s=20e-9,
         ),
     )
 
@@ -49,6 +52,9 @@ def test_frozen_batch_configuration_roundtrip(tmp_path):
     assert loaded.fsw_settings.transport_timeout_ms == 17000
     assert loaded.dsox_settings.waveform_channel == 1
     assert loaded.dsox_settings.delay_edge2 == "-1"
+    assert loaded.dsox_settings.single_timeout_s == 37.0
+    assert loaded.dsox_settings.followup_position_s == 0.484
+    assert loaded.dsox_settings.followup_scale_s == 20e-9
 
 
 def test_configuration_path_is_derived_from_batch_manifest(tmp_path):

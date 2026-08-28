@@ -14,12 +14,12 @@ _REQUIRED_BY_RECIPE = {
         "metadata.json",
         "spectrum_ext.csv",
         "spectrum_ext.npz",
-        "spectrum_imm.csv",
-        "spectrum_imm.npz",
-        "waveform_delay.csv",
-        "waveform_delay.npz",
-        "waveform_cycle.csv",
-        "waveform_cycle.npz",
+        "waveform_sync.csv",
+        "waveform_sync.npz",
+        "waveform_followup.csv",
+        "waveform_followup.npz",
+        "spectrum_freerun.csv",
+        "spectrum_freerun.npz",
     },
     "imm_spectrum_only": {
         "job.json",
@@ -174,7 +174,6 @@ def _resolve_job_directory(
 
 
 def _data_root_from_manifest(manifest_path: Path) -> Path:
-    # <root>/batches/YYYY-MM-DD/<batch_id>/batch.json
     try:
         return manifest_path.parents[3]
     except IndexError:

@@ -24,11 +24,7 @@ CancelCheck = Callable[[], bool]
 
 @dataclass(frozen=True)
 class FormalDSOXConfig(DSOX3034AConfig):
-    """Final paired-recipe DSO-X timing values.
-
-    The first window is derived from the live FSW Sweep Time. Only the second
-    independent scope window needs operator-configurable persisted values.
-    """
+    """Final paired-recipe DSO-X timing values."""
 
     followup_position_s: float = 0.484
     followup_scale_s: float = 20e-9
@@ -49,6 +45,34 @@ class FormalFSWAdapter(FSWAdapter):
         if value <= 0:
             raise ValueError(f"FSW returned invalid Sweep Time: {value}")
         return value
+
+    def configure_frequency(
+        self,
+        center_frequency_hz: float,
+        span_hz: float,
+    ) -> None:
+        """Apply an explicit sweep-plan frequency only when it changes the plan.
+
+        Fixed-repeat builds its one-point plan from the same GUI center/span
+        already stored in this adapter configuration. In that case this method
+        intentionally does *not* write center/span to the FSW, preserving the
+        operator's front-panel measurement setup. A real frequency sweep changes
+        those plan values between points, so the required center/span writes are
+        applied there.
+        """
+        center = float(center_frequency_hz)
+        span = float(span_hz)
+        if center < 0 or span < 0:
+            raise ValueError("frequency plan values must not be negative")
+
+        configured_center = self._config.center_frequency_hz
+        configured_span = self._config.span_hz
+        if configured_center == center and configured_span == span:
+            return
+
+        self._driver.set_center_frequency(center)
+        self._driver.set_span(span)
+        super().configure_frequency(center, span)
 
     def arm_external_current_setup(self) -> None:
         """Switch to EXT and arm once without touching center/span/RBW/VBW."""
@@ -71,21 +95,6 @@ class FormalFSWAdapter(FSWAdapter):
             cancel_check=cancel_check,
         )
         return self._trace_to_result(trace, "IMM")
-
-    def apply_frequency_plan(self, center_frequency_hz: float, span_hz: float) -> None:
-        """Apply only the explicit software frequency-sweep plan.
-
-        Fixed-repeat and single modes do not call this method, so a manually
-        prepared FSW setup stays untouched. Frequency-sweep mode intentionally
-        owns center/span while still preserving RBW/VBW/Sweep Time.
-        """
-        center = float(center_frequency_hz)
-        span = float(span_hz)
-        if center < 0 or span < 0:
-            raise ValueError("frequency plan values must not be negative")
-        self._driver.set_center_frequency(center)
-        self._driver.set_span(span)
-        self.configure_frequency(center, span)
 
 
 class FormalDSOXAdapter(DSOX3034AAdapter):

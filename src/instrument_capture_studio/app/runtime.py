@@ -7,11 +7,13 @@ all driver imports visible to PyInstaller.
 
 from dataclasses import dataclass
 
-from instrument_capture_studio.adapters.dsox3034a import (
-    DSOX3034AAdapter,
-    DSOX3034AConfig,
+from instrument_capture_studio.adapters.dsox3034a import DSOX3034AConfig
+from instrument_capture_studio.adapters.formal_recipe import (
+    FormalDSOXAdapter,
+    FormalDSOXConfig,
+    FormalFSWAdapter,
 )
-from instrument_capture_studio.adapters.fsw import FSWAdapter, FSWConfig
+from instrument_capture_studio.adapters.fsw import FSWConfig
 
 
 @dataclass(frozen=True)
@@ -46,11 +48,13 @@ class DSOXRuntimeSettings:
     delay_edge2: str = "+1"
     cycle_count_source: str = "CHANnel1"
     waveform_channel: int = 1
-    # Two real oscilloscope acquisitions are required for every training
-    # sample. Keep the historically qualified defaults but expose them to the
-    # GUI so they can be changed and persisted.
+    # Legacy DSO-X-only recipe settings are retained for the standalone tool.
     delay_timebase_scale_s: float = 5.0e-7
     cycle_timebase_scale_s: float = 1.0e-4
+    # Final paired recipe: the first window is derived from FSW Sweep Time.
+    # Only the second independent scope capture is user-configurable.
+    followup_position_s: float = 0.484
+    followup_scale_s: float = 20e-9
 
     def __post_init__(self) -> None:
         if not self.resource.strip():
@@ -63,9 +67,13 @@ class DSOXRuntimeSettings:
             raise ValueError("delay_timebase_scale_s must be greater than 0")
         if self.cycle_timebase_scale_s <= 0:
             raise ValueError("cycle_timebase_scale_s must be greater than 0")
+        if self.followup_position_s < 0:
+            raise ValueError("followup_position_s must not be negative")
+        if self.followup_scale_s <= 0:
+            raise ValueError("followup_scale_s must be greater than 0")
 
 
-def build_fsw_adapter(settings: FSWRuntimeSettings) -> FSWAdapter:
+def build_fsw_adapter(settings: FSWRuntimeSettings) -> FormalFSWAdapter:
     from instrument_core.transport import TransportConfig, VisaTransport
     from instrument_drivers.rohde_schwarz.fsw import RohdeSchwarzFSWDriver
 
@@ -77,7 +85,7 @@ def build_fsw_adapter(settings: FSWRuntimeSettings) -> FSWAdapter:
         backend=settings.backend,
     )
 
-    return FSWAdapter(
+    return FormalFSWAdapter(
         address=settings.resource,
         driver=RohdeSchwarzFSWDriver(transport),
         config=FSWConfig(
@@ -90,7 +98,7 @@ def build_fsw_adapter(settings: FSWRuntimeSettings) -> FSWAdapter:
     )
 
 
-def build_dsox_adapter(settings: DSOXRuntimeSettings) -> DSOX3034AAdapter:
+def build_dsox_adapter(settings: DSOXRuntimeSettings) -> FormalDSOXAdapter:
     from instrument_core.transport import TransportConfig, VisaTransport
     from instrument_drivers.keysight.dsox3000 import KeysightDSOX3000Driver
 
@@ -102,10 +110,10 @@ def build_dsox_adapter(settings: DSOXRuntimeSettings) -> DSOX3034AAdapter:
         backend=settings.backend,
     )
 
-    return DSOX3034AAdapter(
+    return FormalDSOXAdapter(
         address=settings.resource,
         driver=KeysightDSOX3000Driver(transport),
-        config=DSOX3034AConfig(
+        config=FormalDSOXConfig(
             delay_source1=settings.delay_source1,
             delay_source2=settings.delay_source2,
             delay_edge1=settings.delay_edge1,
@@ -114,5 +122,7 @@ def build_dsox_adapter(settings: DSOXRuntimeSettings) -> DSOX3034AAdapter:
             waveform_channel=settings.waveform_channel,
             delay_timebase_scale_s=settings.delay_timebase_scale_s,
             cycle_timebase_scale_s=settings.cycle_timebase_scale_s,
+            followup_position_s=settings.followup_position_s,
+            followup_scale_s=settings.followup_scale_s,
         ),
     )

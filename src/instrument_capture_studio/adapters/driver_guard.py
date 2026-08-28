@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Callable
 
 from instrument_capture_studio.core.exceptions import (
     CaptureCanceledError,
@@ -34,6 +34,26 @@ class DriverErrorGuard:
         implementation.
         """
         return hasattr(self._driver, name)
+
+    def call_driver_helper(
+        self,
+        operation: str,
+        helper: Callable[..., Any],
+        *args,
+        **kwargs,
+    ) -> Any:
+        """Run a platform helper against the raw driver under this error boundary.
+
+        Some instrument-family logic is intentionally implemented as a helper in
+        instrument-automation-platform instead of duplicated in the commercial
+        repository.  The helper receives the raw platform driver, while any
+        platform exception is still translated before it crosses into product
+        code.
+        """
+        try:
+            return helper(self._driver, *args, **kwargs)
+        except Exception as exc:
+            self._raise_translated(operation, exc)
 
     def __getattr__(
         self,

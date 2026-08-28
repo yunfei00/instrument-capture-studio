@@ -25,16 +25,19 @@ class PairedCaptureWorkflow(CaptureWorkflow):
     """Final synchronized FSW + DSO-X logical-sample workflow.
 
     The operator prepares the FSW measurement and Sweep Time before starting.
-    Each Job then performs the hardware-qualified sequence:
+    Every physical acquisition is one-shot / Single:
 
     1. Read live FSW Sweep Time ``T``.
     2. Configure DSO-X sync window: Position=T/2, Scale=T/10.
-    3. Switch FSW to EXT and ARM.
-    4. Perform first DSO-X DIGitize; this event triggers the FSW.
-    5. Read the completed FSW EXT spectrum.
+    3. Switch FSW to EXT and ARM exactly one sweep (continuous OFF).
+    4. Press DSO-X Single by SCPI, wait for that acquisition to finish, then
+       read/save the first waveform. This hardware event triggers the FSW EXT
+       sweep through the customer's trigger wiring.
+    5. Read the completed FSW EXT spectrum from that one sweep.
     6. Configure the second DSO-X window from persisted GUI values.
-    7. Perform a second independent DSO-X DIGitize.
-    8. Switch FSW to Free Run / IMM and acquire one spectrum.
+    7. Press DSO-X Single again, wait for completion, then read/save the second
+       independent waveform.
+    8. Switch FSW to Free Run / IMM and acquire exactly one sweep.
     9. Persist the four primary traces as one logical sample.
     """
 
@@ -83,6 +86,12 @@ class PairedCaptureWorkflow(CaptureWorkflow):
 
     def run(self, job_id: str) -> CaptureResult:
         self._context = CaptureContext(metadata=deepcopy(self._initial_metadata))
+        self._context.metadata["acquisition_modes"] = {
+            "fsw_ext": "single",
+            "dsox_sync": "single",
+            "dsox_followup": "single",
+            "fsw_freerun": "single",
+        }
         self._current_job_id = job_id
         self._output_files = []
         self._sweep_time_s = None
@@ -117,6 +126,9 @@ class PairedCaptureWorkflow(CaptureWorkflow):
         result.metadata["capture_complete"] = self._context.is_paired_complete
         result.metadata["result_saved"] = bool(
             self._context.metadata.get("result_saved", False)
+        )
+        result.metadata["acquisition_modes"] = deepcopy(
+            self._context.metadata["acquisition_modes"]
         )
         if "instruments" in self._context.metadata:
             result.metadata["instruments"] = deepcopy(
@@ -168,7 +180,9 @@ class PairedCaptureWorkflow(CaptureWorkflow):
         self._spectrum_analyzer.arm_external_current_setup()
 
     def _capture_sync_scope(self, execution: StepExecutionContext) -> None:
-        waveform = self._oscilloscope.acquire_sync_waveform()
+        waveform = self._oscilloscope.acquire_sync_waveform(
+            cancel_check=execution.cancel_check,
+        )
         self._context.waveform_sync = waveform
         self._context.metadata["waveform_channel"] = waveform.channel
 
@@ -185,7 +199,9 @@ class PairedCaptureWorkflow(CaptureWorkflow):
 
     def _capture_followup_scope(self, execution: StepExecutionContext) -> None:
         self._context.waveform_followup = (
-            self._oscilloscope.acquire_followup_waveform()
+            self._oscilloscope.acquire_followup_waveform(
+                cancel_check=execution.cancel_check,
+            )
         )
 
     def _acquire_freerun(self, execution: StepExecutionContext) -> None:

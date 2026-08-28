@@ -4,6 +4,10 @@ The operator prepares the FSW measurement on the front panel before a run.
 These helpers deliberately preserve that measurement setup and only control the
 pieces owned by the product recipe: Sweep Time readback, EXT/IMM trigger state,
 and (for an explicit frequency-sweep execution mode) center/span changes.
+
+Both instruments use one-shot acquisition semantics. FSW runs one sweep with
+continuous mode disabled. DSO-X uses the exact front-panel-equivalent
+``:SINGle`` command before each waveform is read.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ class FormalDSOXConfig(DSOX3034AConfig):
 
     followup_position_s: float = 0.484
     followup_scale_s: float = 20e-9
+    single_timeout_s: float = 30.0
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -35,10 +40,12 @@ class FormalDSOXConfig(DSOX3034AConfig):
             raise ValueError("followup_position_s must not be negative")
         if self.followup_scale_s <= 0:
             raise ValueError("followup_scale_s must be greater than 0")
+        if self.single_timeout_s <= 0:
+            raise ValueError("single_timeout_s must be greater than 0")
 
 
 class FormalFSWAdapter(FSWAdapter):
-    """FSW primitives that do not overwrite the operator's measurement setup."""
+    """FSW primitives that preserve setup and perform one sweep per result."""
 
     def read_sweep_time_s(self) -> float:
         value = float(self._driver.get_sweep_time())
@@ -75,9 +82,29 @@ class FormalFSWAdapter(FSWAdapter):
         super().configure_frequency(center, span)
 
     def arm_external_current_setup(self) -> None:
-        """Switch to EXT and arm once without touching center/span/RBW/VBW."""
+        """Arm exactly one EXT-triggered FSW sweep.
+
+        ``arm_trace_ascii`` sets INITiate:CONTinuous OFF before INITiate, so this
+        is the spectrum-analyzer equivalent of a Single acquisition rather than
+        continuous sweeping.
+        """
         self._driver.set_trigger_source("EXT")
         self._driver.arm_trace_ascii(channel=self._config.channel)
+
+    def read_armed_spectrum(
+        self,
+        *,
+        timeout_s: float | None = None,
+        cancel_check: CancelCheck | None = None,
+        trigger_source: str = "EXT",
+    ):
+        result = super().read_armed_spectrum(
+            timeout_s=timeout_s,
+            cancel_check=cancel_check,
+            trigger_source=trigger_source,
+        )
+        result.metadata["acquisition_mode"] = "single"
+        return result
 
     def acquire_freerun_current_setup(
         self,
@@ -85,8 +112,9 @@ class FormalFSWAdapter(FSWAdapter):
         timeout_s: float | None = None,
         cancel_check: CancelCheck | None = None,
     ):
-        """Switch to Free Run/IMM and acquire once without rewriting setup."""
+        """Acquire exactly one Free Run / IMM spectrum with current setup."""
         self._driver.set_trigger_source("IMM")
+        # acquire_trace_ascii -> arm_trace_ascii -> CONTinuous OFF + one INIT.
         trace = self._driver.acquire_trace_ascii(
             channel=self._config.channel,
             window=self._config.window,
@@ -94,11 +122,13 @@ class FormalFSWAdapter(FSWAdapter):
             timeout_s=timeout_s,
             cancel_check=cancel_check,
         )
-        return self._trace_to_result(trace, "IMM")
+        result = self._trace_to_result(trace, "IMM")
+        result.metadata["acquisition_mode"] = "single"
+        return result
 
 
 class FormalDSOXAdapter(DSOX3034AAdapter):
-    """DSO-X timing-window primitives verified during staged hardware tests."""
+    """DSO-X timing-window primitives for two independent Single acquisitions."""
 
     def configure_sync_window(self, sweep_time_s: float) -> dict[str, object]:
         sweep_time = float(sweep_time_s)
@@ -118,11 +148,19 @@ class FormalDSOXAdapter(DSOX3034AAdapter):
             window_kind="followup",
         )
 
-    def acquire_sync_waveform(self) -> WaveformResult:
-        return self._acquire_formal_waveform("sync")
+    def acquire_sync_waveform(
+        self,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ) -> WaveformResult:
+        return self._acquire_formal_waveform("sync", cancel_check=cancel_check)
 
-    def acquire_followup_waveform(self) -> WaveformResult:
-        return self._acquire_formal_waveform("followup")
+    def acquire_followup_waveform(
+        self,
+        *,
+        cancel_check: CancelCheck | None = None,
+    ) -> WaveformResult:
+        return self._acquire_formal_waveform("followup", cancel_check=cancel_check)
 
     def _configure_window(
         self,
@@ -156,8 +194,23 @@ class FormalDSOXAdapter(DSOX3034AAdapter):
             "scale_readback_s_per_div": scale_readback,
         }
 
-    def _acquire_formal_waveform(self, sample_kind: str) -> WaveformResult:
-        raw = self._driver.acquire_word_waveform(self._config.waveform_channel)
+    def _acquire_formal_waveform(
+        self,
+        sample_kind: str,
+        *,
+        cancel_check: CancelCheck | None,
+    ) -> WaveformResult:
+        # Keep the platform dependency local so importing the commercial package
+        # does not require the sibling baseline repository until hardware runtime.
+        from instrument_drivers.keysight.dsox3000 import acquire_single_word_waveform
+
+        raw = self._driver.call_driver_helper(
+            "acquire_single_word_waveform",
+            acquire_single_word_waveform,
+            self._config.waveform_channel,
+            timeout_s=float(getattr(self._config, "single_timeout_s", 30.0)),
+            cancel_check=cancel_check,
+        )
         result = self._convert_waveform(
             raw,
             sample_kind=sample_kind,
@@ -166,4 +219,6 @@ class FormalDSOXAdapter(DSOX3034AAdapter):
         result.metadata["horizontal_position_s"] = float(
             self._driver.get_timebase_position()
         )
+        result.metadata["acquisition_mode"] = "single"
+        result.metadata["acquisition_command"] = ":SINGle"
         return result

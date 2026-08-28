@@ -156,15 +156,15 @@ Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight �
 
 真机状态：
 
-1. [ ] FSW 物理网线断开 → 插回 → 自动恢复。
+1. [x] FSW 物理网线断开 → 插回 → `RECONNECTING` 并自动恢复继续采集。
 2. [x] DSO-X 当前 USB→TCP Bridge 的 TCP/网线链路断开 → 恢复后自动重连并继续采集。
-3. [ ] 保持断线直到最大重试次数耗尽，最终明确 FAILED，不无限重试。
-4. [ ] EXT Trigger Timeout 不误进入 `RECONNECTING`，FSW 安全 ABORt。
-5. [ ] 采集中关闭 GUI：先安全停止，再自动退出；重新启动后识别未完成任务并可继续。
+3. [x] 保持断线直到最大重试次数耗尽，最终明确 `FAILED`，重试次数有界，不无限重试。
+4. [x] EXT Trigger Timeout 在 `fsw_ext_read` 正确超时并 `FAILED`，不误进入 `RECONNECTING`；FSW 安全 ABORt，触发线恢复后下一次单采正常。
+5. [x] 采集中关闭 GUI：先安全停止，再自动退出；重新启动后识别未完成任务并可继续。
 
 现场 USB→TCP Bridge 的 USB/转发器侧直接拔除会产生桥接层特有问题，本版本暂不作为 v1.0.0 阻塞项；其可靠性与桥接工具行为后续单独处理。
 
-状态：**IN PROGRESS**
+**2026-08-28：Phase 8D COMPLETE。**
 
 ## F. Phase 8E：Windows Release Candidate
 
@@ -180,8 +180,9 @@ Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight �
 8. 暂停 / 继续、停止后继续、异常退出恢复完成验收。
 9. 正式 Schema v1 的数据浏览、报告、导出、preflight 全部通过。
 10. Phase 8D 异常验收全部通过。
+11. Phase 8C `timing.csv` / HTML 真机时间量级复核通过。
 
-状态：PENDING
+状态：**IN PROGRESS**
 
 ## G. OPTIONAL，不阻塞 v1.0.0
 
@@ -197,7 +198,7 @@ Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight �
 - **8A：正式 Recipe + 正式 Schema v1：COMPLETE**
 - **8B：暂停 / 停止后继续 / 意外退出恢复：COMPLETE**
 - **8C：节点耗时与性能统计：软件完成，待真机数据复核**
-- **8D：断线 / Timeout / GUI 退出异常验收：IN PROGRESS**
-- **8E：RC EXE 与 v1.0.0 Release：PENDING**
+- **8D：断线 / Timeout / GUI 退出异常验收：COMPLETE**
+- **8E：RC EXE 与 v1.0.0 Release：IN PROGRESS**
 
-Phase 7 保持 COMPLETE。Phase 8A 已冻结正式 Schema v1，后续开发重点转为异常恢复和最终发布，不再扩展 v1.0.0 功能范围。
+Phase 7 保持 COMPLETE。Phase 8A 已冻结正式 Schema v1；Phase 8D 已完成异常真机验收。后续只做时间数据复核、RC/EXE 验收和最终 v1.0.0 发布，不再扩展 v1.0.0 功能范围。

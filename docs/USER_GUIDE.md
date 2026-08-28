@@ -1,145 +1,151 @@
 # Instrument Capture Studio 用户指南
 
-适用版本：v0.9.0 RC / v1.0.0
+适用版本：v1.0.0 Final RC / v1.0.0
 
-第一版固定支持：
+第一版固定支持：Keysight DSO-X 3034A + Rohde & Schwarz FSW。
 
-- Keysight DSO-X 3034A
-- Rohde & Schwarz FSW
-
-## 1. 启动
+## 1. 启动与连接
 
 源码运行：
 
 ```powershell
-python scripts/run_gui.py
+python scripts\run_gui.py
 ```
 
 发布包运行：解压 Windows ZIP 后启动 `InstrumentCaptureStudio.exe`。
 
-## 2. 仪表地址与连接
+分别填写 FSW 与 DSO-X 的 VISA 地址并点击“测试连接”。测试连接只做连接、身份读取、断开；正式采集会重新建立会话。常用参数自动保存。
 
-分别填写 FSW 与 DSO-X 的 VISA 地址，点击“测试连接”。
+## 2. 采集内容
 
-“测试连接”只执行：连接 → 读取仪表身份 → 断开。真正开始采集时软件会重新建立会话。
+### EXT 联合 + IMM 配对样本
 
-常用参数会自动保存，下一次启动自动恢复。
-
-## 3. 采集模式
-
-### 单次采集
-
-执行一次完整联合采集：
+这是正式联合数据 Recipe。每个逻辑样本严格执行：
 
 ```text
-FSW Spectrum
-→ DSO-X DELAY
-→ DSO-X CYCLE_COUNT
-→ DSO-X Waveform
+读取 FSW Sweep Time T
+→ DSO-X 第一次窗口 Position=T/2、Scale=T/10
+→ FSW EXT，Continuous OFF，ARM 一次 Single Sweep
+→ DSO-X :SINGle #1，等待完成后读取 waveform_sync
+→ 读取已完成的 FSW EXT Single → spectrum_ext
+→ DSO-X 第二次窗口（默认 Position=0.484 s、Scale=20e-9 s/div）
+→ DSO-X :SINGle #2，等待完成后读取 waveform_followup
+→ FSW Free Run / IMM，Continuous OFF，只做一次 Sweep → spectrum_freerun
 → Save Result
 ```
 
-### 频率循环采集
+客户规则：**示波器每份保存的波形前都必须执行一次真正的 Single；频谱每份结果也必须来自一次 Single Sweep。** 软件不会把连续运行中的当前屏幕数据直接当作正式样本。
 
-配置：起始频率、结束频率、步长、Span、每频点采集次数。
+### IMM 频谱单采
 
-例如：700–800 MHz、步长 5 MHz、每频点 100 次，共 21 个频点、2100 次联合采集。
+只连接 FSW。Trigger=IMM，Continuous OFF，只执行一次 Sweep，完成后保存频谱。
 
-Batch 正常运行期间复用两台仪表长连接，只在真实连接/通信故障时重新建立会话。
+### DSO-X 示波器单采
 
-### 固定频率连续采集
+只连接 DSO-X。DELAY 与 CYCLE 两组分别设置参数；每一组都执行一次 `:SINGle`，等待该次采集完成后再读取/保存波形。两组是两个独立 acquisition。
 
-使用当前 FSW Center / Span，在同一频率下连续执行用户指定次数的完整联合采集，同样复用长连接。
+## 3. 执行方式
 
-## 4. 停止采集
+配对 Recipe 支持：
 
-点击“停止采集”后软件发送协作式取消请求。正在执行的仪表操作会在安全边界结束或中止，然后退出当前 Job / Batch。
+- 单次采集
+- 固定频率连续采集
+- 频率循环采集
 
-不要使用任务管理器强制结束作为正常停止方式。
+频率循环可以配置起始频率、结束频率、步长、Span、每频点次数。Batch 正常运行期间复用仪表长连接，只在真实连接/通信故障时重新建立会话。
 
-## 5. 数据目录
+固定频率重复模式保持测试人员当前 FSW 测量设置；频率循环模式才按计划修改中心频率/Span。
 
-每次成功 Job 保存：
+## 4. DSO-X 时间窗口
+
+配对 Recipe 的第一次窗口由 FSW 当前 Sweep Time 自动计算，不需要人工填写：
+
+```text
+Position = T / 2
+Scale    = T / 10
+```
+
+第二次窗口由 GUI 配置并自动保存，默认：
+
+```text
+Position = 0.484 s
+Scale    = 20e-9 s/div
+```
+
+## 5. 停止、暂停与继续
+
+“停止采集”发送协作式取消请求，不使用强制杀线程。批量任务的“暂停”只在完整逻辑样本边界生效；暂停时释放仪表会话，继续时重新建立会话。
+
+未完成 Batch 可以在重新启动 GUI 后选择“继续上次任务”。已成功的逻辑样本不会重复；未完成的半个 Job 不拼接，而是重新完整采集。
+
+## 6. 正式数据目录
+
+配对 Job：
 
 ```text
 YYYY-MM-DD/
 └── job_id/
     ├── job.json
     ├── metadata.json
-    ├── spectrum.csv
-    ├── spectrum.npz
-    ├── waveform.csv
-    └── waveform.npz
+    ├── spectrum_ext.csv
+    ├── spectrum_ext.npz
+    ├── waveform_sync.csv
+    ├── waveform_sync.npz
+    ├── waveform_followup.csv
+    ├── waveform_followup.npz
+    ├── spectrum_freerun.csv
+    └── spectrum_freerun.npz
 ```
+
+IMM-only：`job.json`、`metadata.json`、`spectrum_imm.csv/.npz`。
+
+DSO-X-only：`job.json`、`metadata.json`、`waveform_delay.csv/.npz`、`waveform_cycle.csv/.npz`。
 
 批量任务额外保存：
 
 ```text
-batches/
-└── YYYY-MM-DD/
-    └── batch_id/
-        └── batch.json
+batches/YYYY-MM-DD/<batch_id>/batch.json
+batch-configs/<batch_id>.json
 ```
 
-## 6. 数据浏览与曲线
+## 7. 数据浏览、报告和导出
 
-数据浏览区域支持：
+数据浏览区可以打开 Job/Batch 目录、JSON 和四类正式 NPZ 曲线。大数组仅在预览时抽样，不修改原始文件。
 
-- 双击 Job 打开目录
-- 双击 `batch.json` / `job.json` / `metadata.json` 查看结构化内容
-- 双击 `spectrum.npz` 查看频谱曲线
-- 双击 `waveform.npz` 查看时域波形
+Batch 可以生成 HTML 报告、`jobs.csv`、`timing.csv`，也可以把所有正式曲线批量导出为 SVG。
 
-大数组会自动抽样用于预览，不修改原始数据。
+## 8. 配置模板与参数保存
 
-## 7. 配置模板
+GUI 参数自动保存。实验配置模板可以保存/加载整套参数，包括 VISA、FSW 参数、执行方式、扫频计划、输出目录、Waveform Channel 和第二次 DSO-X Position/Scale。
 
-输入模板名称后点击“保存模板”，可保存当前 VISA、FSW、DSO-X、采集模式、扫频参数和输出目录。
+## 9. 异常与自动恢复
 
-以后选中模板并点击“加载模板”即可恢复整套实验参数。
+连接/通信异常使用有界重连；Trigger Timeout 不等同于网络断线，因此不会误进入重连。FSW 超时会安全 ABORt；DSO-X Single 等待超时会 STOP，不会无限等待。
 
-## 8. Batch 报告与批量转图
+默认恢复策略最多 4 次完整 Capture 尝试，重连间隔 2 秒。
 
-选中一个 Batch 后可以：
+## 10. 工程调试入口
 
-- 生成 HTML 报告：每频点选择代表性成功 Job，生成 Spectrum / Waveform SVG，并导出完整 `jobs.csv`
-- 导出全部曲线：将所有成功 Job 的 Spectrum / Waveform 转为 SVG，同时生成索引 CSV
-
-大批量导出在后台执行，不阻塞 GUI 主界面。
-
-## 9. 日志
-
-GUI 日志同时写入用户目录中的会话日志。遇到掉线、超时、重连或异常时，优先保留：
-
-- 会话日志
-- 对应 Job 的 `job.json`
-- Batch 的 `batch.json`
-
-这些文件用于定位问题。
-
-## 10. 自动重连规则
-
-自动重连只针对：
-
-- InstrumentConnectionError
-- InstrumentCommunicationError
-
-默认最多 4 次完整 Capture 尝试，重连等待 2 秒。
-
-Trigger / Measurement Timeout 不自动重连，因为“没有触发”不等于“网络断开”。
+“工程调试 / 单步采集”保留用于现场故障定位。正式同步流程的 8 个单步已经完成真机验收，正常使用不需要进入该窗口。
 
 ## 11. 发布前数据校验
 
-可校验最近一个 Batch：
+运行环境：
 
 ```powershell
-python scripts/phase8_preflight.py --data-root D:\capture-data
+python scripts\phase8_preflight.py --self-check
 ```
 
-或指定 `batch.json`：
+校验最近 Batch：
 
 ```powershell
-python scripts/phase8_preflight.py --batch D:\capture-data\batches\2026-08-26\batch-xxxx\batch.json
+python scripts\phase8_preflight.py --data-root D:\capture-data
 ```
 
-PASS 表示 Batch 完成数量一致，并且每个成功 Job 的 6 个标准文件完整存在。
+或指定：
+
+```powershell
+python scripts\phase8_preflight.py --batch D:\capture-data\batches\YYYY-MM-DD\batch-id\batch.json
+```
+
+PASS 表示 Batch 完成数量一致，且每个成功 Job 的当前 Recipe 所要求的正式文件完整存在。

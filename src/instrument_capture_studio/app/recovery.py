@@ -44,6 +44,19 @@ _RECOVERABLE_RESULT_ERROR_TYPES = {
     "InstrumentCommunicationError",
 }
 
+# The real DSO-X installation is reached through a USB-to-TCP forwarding
+# bridge. If the USB side disappears while the TCP bridge itself remains
+# reachable, the bridge can surface the lost instrument as an I/O timeout
+# rather than a socket/connection exception. Retrying these two physical
+# waveform steps through a fresh session is therefore appropriate.
+#
+# Do NOT generalize this to FSW steps: an FSW EXT timeout is a valid trigger
+# timeout and Phase 8 explicitly requires that it does not enter RECONNECTING.
+_DSOX_BRIDGE_TIMEOUT_STEPS = {
+    "dsox_delay_group",
+    "dsox_cycle_group",
+}
+
 
 def recovery_reason_from_exception(
     exc: Exception,
@@ -79,14 +92,30 @@ def recovery_reason_from_result(
             continue
 
         error_type = step.metadata.get("error_type")
-        if error_type not in _RECOVERABLE_RESULT_ERROR_TYPES:
-            return None
+        if error_type in _RECOVERABLE_RESULT_ERROR_TYPES:
+            return RecoveryReason(
+                error_type=str(error_type),
+                message=step.error or "instrument communication failed",
+                stage=step.name,
+            )
 
-        return RecoveryReason(
-            error_type=str(error_type),
-            message=step.error or "instrument communication failed",
-            stage=step.name,
-        )
+        if (
+            error_type == "InstrumentTimeoutError"
+            and step.name in _DSOX_BRIDGE_TIMEOUT_STEPS
+        ):
+            return RecoveryReason(
+                error_type="InstrumentTimeoutError",
+                message=(
+                    step.error
+                    or "DSO-X waveform operation timed out; retry with a fresh session"
+                ),
+                stage=step.name,
+            )
+
+        # Any other failed step is intentionally non-recoverable. In
+        # particular FSW trigger/measurement timeouts stop here and must not
+        # be reclassified as a transport reconnect event.
+        return None
 
     application_error = result.metadata.get("application_error")
     if isinstance(application_error, dict):

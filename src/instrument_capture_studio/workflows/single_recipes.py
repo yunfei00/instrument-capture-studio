@@ -201,13 +201,9 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def run(self, job_id: str) -> CaptureResult:
-        # Each group now follows the customer's exact physical rule: set the
-        # group parameters, issue one front-panel-equivalent :SINGle, wait for
-        # that acquisition to complete, then read/save its waveform.
-        self._context.metadata["acquisition_modes"] = {
-            "dsox_delay": "single",
-            "dsox_cycle": "single",
-        }
+        # Each group follows the customer's exact physical rule: set the group
+        # parameters, issue one front-panel-equivalent :SINGle, wait for that
+        # acquisition to complete, then read/save its waveform.
         return self._run_steps(
             job_id,
             self.steps,
@@ -228,6 +224,9 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         self._context.metadata["delay_timebase_scale_s"] = waveform.metadata.get(
             "timebase_scale_s"
         )
+        self._context.metadata.setdefault("acquisition_modes", {})[
+            "dsox_delay"
+        ] = "single"
 
     def _acquire_cycle_group(self, execution: StepExecutionContext) -> None:
         cycle_count, waveform = self._oscilloscope.acquire_cycle_group(
@@ -238,3 +237,6 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         self._context.metadata["cycle_timebase_scale_s"] = waveform.metadata.get(
             "timebase_scale_s"
         )
+        self._context.metadata.setdefault("acquisition_modes", {})[
+            "dsox_cycle"
+        ] = "single"

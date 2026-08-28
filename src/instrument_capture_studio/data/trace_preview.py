@@ -20,10 +20,16 @@ def _trace_title(path: Path, kind: str) -> str:
     if kind == "spectrum":
         if stem == "spectrum_ext":
             return "Spectrum EXT"
+        if stem == "spectrum_freerun":
+            return "Spectrum Free Run"
         if stem == "spectrum_imm":
             return "Spectrum IMM"
         return "Spectrum"
 
+    if stem == "waveform_sync":
+        return "Waveform Sync"
+    if stem == "waveform_followup":
+        return "Waveform Follow-up"
     if stem == "waveform_delay":
         return "Waveform DELAY"
     if stem == "waveform_cycle":

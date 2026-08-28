@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from contextlib import nullcontext
 from copy import deepcopy
 
 from instrument_capture_studio.core.models import CaptureResult
@@ -107,7 +106,11 @@ class _RecipeWorkflowBase(CaptureWorkflow):
     def _save(self, execution: StepExecutionContext) -> None:
         if not self._context.capture_complete:
             from instrument_capture_studio.core.exceptions import CaptureStepError
-            raise CaptureStepError("save_result", f"{self.recipe} context is incomplete")
+
+            raise CaptureStepError(
+                "save_result",
+                f"{self.recipe} context is incomplete",
+            )
         if self._current_job_id is None:
             raise RuntimeError("current job id is not set")
         self._output_files = list(
@@ -191,58 +194,21 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def run(self, job_id: str) -> CaptureResult:
-        # DSO-X-only must be deterministic and independent of whatever the
-        # front panel was doing before remote control started. The real adapter
-        # temporarily selects AUTO trigger sweep and NORMal acquisition, then
-        # restores both settings after the two physical captures.
-        capture_scope = getattr(self._oscilloscope, "standalone_auto_trigger", None)
-        manager = capture_scope() if callable(capture_scope) else nullcontext({})
-        with manager as capture_settings:
-            settings = (
-                dict(capture_settings)
-                if isinstance(capture_settings, dict)
-                else {
-                    "trigger_sweep_original": str(capture_settings),
-                    "trigger_sweep_used": "AUTO",
-                }
-            )
-            previous = {
-                key: self._initial_metadata.get(key)
-                for key in (
-                    "standalone_trigger_sweep_original",
-                    "standalone_trigger_sweep_used",
-                    "standalone_acquisition_type_original",
-                    "standalone_acquisition_type_used",
-                )
-            }
-            self._initial_metadata[
-                "standalone_trigger_sweep_original"
-            ] = settings.get("trigger_sweep_original", "UNKNOWN")
-            self._initial_metadata[
-                "standalone_trigger_sweep_used"
-            ] = settings.get("trigger_sweep_used", "AUTO")
-            self._initial_metadata[
-                "standalone_acquisition_type_original"
-            ] = settings.get("acquisition_type_original", "UNKNOWN")
-            self._initial_metadata[
-                "standalone_acquisition_type_used"
-            ] = settings.get("acquisition_type_used", "NORM")
-            try:
-                return self._run_steps(
-                    job_id,
-                    self.steps,
-                    {
-                        "dsox_delay_group": self._acquire_delay_group,
-                        "dsox_cycle_group": self._acquire_cycle_group,
-                        "save_result": self._save,
-                    },
-                )
-            finally:
-                for key, value in previous.items():
-                    if value is None:
-                        self._initial_metadata.pop(key, None)
-                    else:
-                        self._initial_metadata[key] = value
+        # Do not silently rewrite the oscilloscope trigger/acquisition settings
+        # in this workflow. A previous timeout investigation showed the actual
+        # failure was caused by a USB-to-TCP bridge converting binary waveform
+        # traffic as ASCII. Product capture should therefore preserve the
+        # configured DSO-X behavior and let the transport path remain binary
+        # transparent.
+        return self._run_steps(
+            job_id,
+            self.steps,
+            {
+                "dsox_delay_group": self._acquire_delay_group,
+                "dsox_cycle_group": self._acquire_cycle_group,
+                "save_result": self._save,
+            },
+        )
 
     def _acquire_delay_group(self, execution: StepExecutionContext) -> None:
         delay, waveform = self._oscilloscope.acquire_delay_group()

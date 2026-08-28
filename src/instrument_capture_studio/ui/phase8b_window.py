@@ -62,9 +62,6 @@ class MainWindow(Phase8MainWindow):
                 recipe is CaptureRecipe.EXT_IMM_PAIR
                 and execution is not ExecutionMode.SINGLE
             ):
-                # Build before starting the worker so the snapshot represents
-                # the exact settings that the request will use. On resume these
-                # methods return the frozen dataclasses rather than QSettings.
                 configuration = BatchCaptureConfiguration(
                     recipe=recipe,
                     execution_mode=execution,
@@ -78,8 +75,6 @@ class MainWindow(Phase8MainWindow):
 
             super()._start_recipe_request(resume_batch)
         finally:
-            # The request already contains immutable runtime dataclasses, so the
-            # override is only needed while the request is being constructed.
             self._resume_runtime_configuration = None
 
     def _persist_started_batch_configuration(
@@ -100,17 +95,16 @@ class MainWindow(Phase8MainWindow):
                 "保存 Batch 参数快照失败："
                 f"{type(exc).__name__}: {exc}"
             )
-            # Do not silently claim crash-resume safety when the snapshot could
-            # not be persisted. Stop at the next cooperative boundary.
             self._controller.cancel_capture()
             self.statusBar().showMessage("Batch 参数快照保存失败，已请求安全停止", 10000)
             return
 
+        dsox = configuration.dsox_settings
         self._append_log(
             "Batch 参数已冻结："
-            f"{batch_id} · CH{configuration.dsox_settings.waveform_channel} · "
-            f"DELAY {configuration.dsox_settings.delay_timebase_scale_s:g}s/div · "
-            f"CYCLE {configuration.dsox_settings.cycle_timebase_scale_s:g}s/div"
+            f"{batch_id} · CH{dsox.waveform_channel} · "
+            f"第二次 Position {dsox.followup_position_s:g}s · "
+            f"第二次 Scale {dsox.followup_scale_s:g}s/div"
         )
         self._pending_batch_configuration = None
         self._pending_batch_output_root = None
@@ -149,6 +143,10 @@ class MainWindow(Phase8MainWindow):
         self.waveform_channel_spin.setValue(dsox.waveform_channel)
         self.delay_timebase_scale_edit.setText(f"{dsox.delay_timebase_scale_s:g}")
         self.cycle_timebase_scale_edit.setText(f"{dsox.cycle_timebase_scale_s:g}")
+        if hasattr(self, "followup_position_edit"):
+            self.followup_position_edit.setText(f"{dsox.followup_position_s:g}")
+        if hasattr(self, "followup_scale_edit"):
+            self.followup_scale_edit.setText(f"{dsox.followup_scale_s:g}")
 
         self._update_sweep_summary()
         self._update_recipe_summary()
@@ -161,11 +159,10 @@ class MainWindow(Phase8MainWindow):
         batch = self._resumable_batch
         if batch is None:
             return
-        config = batch.configuration
-        dsox = config.dsox_settings
+        dsox = batch.configuration.dsox_settings
         self.resume_summary_label.setText(
             self.resume_summary_label.text()
             + f" · 原参数 CH{dsox.waveform_channel}"
-            + f" · DELAY {dsox.delay_timebase_scale_s:g}s/div"
-            + f" · CYCLE {dsox.cycle_timebase_scale_s:g}s/div"
+            + f" · 第二次 Position {dsox.followup_position_s:g}s"
+            + f" · Scale {dsox.followup_scale_s:g}s/div"
         )

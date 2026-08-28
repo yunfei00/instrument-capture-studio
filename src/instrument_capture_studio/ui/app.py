@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from instrument_capture_studio.ui.release_window import MainWindow
 
 
-_RELEASE_LABEL = "v0.9 · RC1"
+_RELEASE_LABEL = "v1.0.0 · RC1"
 
 
 def create_application(argv: list[str] | None = None) -> QApplication:
@@ -28,8 +28,8 @@ def create_main_window() -> MainWindow:
     badge = window.findChild(QLabel, "alphaBadge")
     if badge is not None:
         badge.setText(_RELEASE_LABEL)
-        badge.setMinimumWidth(130)
-    window.statusBar().showMessage("就绪 · v0.9 RC1 · Phase 8D")
+        badge.setMinimumWidth(140)
+    window.statusBar().showMessage("就绪 · v1.0.0 RC1 · Phase 8E")
     return window
 
 

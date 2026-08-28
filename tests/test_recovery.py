@@ -87,15 +87,64 @@ def test_recovery_accepts_failed_communication_step():
     assert reason.error_type == "InstrumentCommunicationError"
 
 
-def test_recovery_does_not_retry_timeout_result():
+@pytest.mark.parametrize(
+    "step_name",
+    [
+        "dsox_delay_group",
+        "dsox_cycle_group",
+    ],
+)
+def test_recovery_retries_dsox_bridge_timeout_with_fresh_session(step_name):
+    result = CaptureResult(
+        job_id="job-dsox-timeout",
+        state=JobState.FAILED,
+        steps=[
+            StepResult(
+                name=step_name,
+                state=StepState.FAILED,
+                error="acquire_word_waveform: Timeout expired",
+                metadata={
+                    "error_type": "InstrumentTimeoutError",
+                },
+            )
+        ],
+    )
+
+    reason = recovery_reason_from_result(result)
+
+    assert reason is not None
+    assert reason.error_type == "InstrumentTimeoutError"
+    assert reason.stage == step_name
+
+
+def test_recovery_does_not_retry_fsw_timeout_result():
     result = CaptureResult(
         job_id="job-timeout",
         state=JobState.FAILED,
         steps=[
             StepResult(
-                name="fsw_spectrum",
+                name="fsw_ext_read",
                 state=StepState.FAILED,
-                error="measurement timeout",
+                error="trigger timeout",
+                metadata={
+                    "error_type": "InstrumentTimeoutError",
+                },
+            )
+        ],
+    )
+
+    assert recovery_reason_from_result(result) is None
+
+
+def test_recovery_does_not_retry_unrelated_timeout_result():
+    result = CaptureResult(
+        job_id="job-timeout",
+        state=JobState.FAILED,
+        steps=[
+            StepResult(
+                name="save_result",
+                state=StepState.FAILED,
+                error="storage timeout",
                 metadata={
                     "error_type": "InstrumentTimeoutError",
                 },

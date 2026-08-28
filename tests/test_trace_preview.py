@@ -40,17 +40,17 @@ def test_loads_waveform_preview(tmp_path):
 
 def test_formal_recipe_filenames_get_distinct_titles(tmp_path):
     spectrum_ext = tmp_path / "spectrum_ext.npz"
-    spectrum_imm = tmp_path / "spectrum_imm.npz"
-    waveform_delay = tmp_path / "waveform_delay.npz"
-    waveform_cycle = tmp_path / "waveform_cycle.npz"
+    spectrum_freerun = tmp_path / "spectrum_freerun.npz"
+    waveform_sync = tmp_path / "waveform_sync.npz"
+    waveform_followup = tmp_path / "waveform_followup.npz"
 
-    for path in (spectrum_ext, spectrum_imm):
+    for path in (spectrum_ext, spectrum_freerun):
         np.savez_compressed(
             path,
             frequency_hz=np.array([700e6, 701e6]),
             amplitude_dbm=np.array([-60.0, -50.0]),
         )
-    for path in (waveform_delay, waveform_cycle):
+    for path in (waveform_sync, waveform_followup):
         np.savez_compressed(
             path,
             time_s=np.array([0.0, 1e-6]),
@@ -58,6 +58,6 @@ def test_formal_recipe_filenames_get_distinct_titles(tmp_path):
         )
 
     assert load_trace_preview(spectrum_ext).title == "Spectrum EXT"
-    assert load_trace_preview(spectrum_imm).title == "Spectrum IMM"
-    assert load_trace_preview(waveform_delay).title == "Waveform DELAY"
-    assert load_trace_preview(waveform_cycle).title == "Waveform CYCLE_COUNT"
+    assert load_trace_preview(spectrum_freerun).title == "Spectrum Free Run"
+    assert load_trace_preview(waveform_sync).title == "Waveform Sync"
+    assert load_trace_preview(waveform_followup).title == "Waveform Follow-up"

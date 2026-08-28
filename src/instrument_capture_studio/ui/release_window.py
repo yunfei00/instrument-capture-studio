@@ -1,4 +1,4 @@
-"""Phase 8D release hardening for safe GUI shutdown.
+"""Release hardening for safe GUI shutdown and v1.0.0 RC validation.
 
 The product must never destroy the VISA worker thread while an instrument call
 is still running. A close request during capture or a connection test therefore
@@ -20,7 +20,7 @@ class MainWindow(Phase8BWindow):
         self._close_after_hardware_idle = False
         self._connection_tests_active = 0
         super().__init__()
-        self.statusBar().showMessage("就绪 · Phase 8D · Safe shutdown RC")
+        self.statusBar().showMessage("就绪 · Phase 8E · v1.0.0 RC1")
 
     @property
     def safe_close_pending(self) -> bool:

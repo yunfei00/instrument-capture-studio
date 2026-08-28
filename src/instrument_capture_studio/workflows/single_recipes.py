@@ -70,6 +70,10 @@ class _RecipeWorkflowBase(CaptureWorkflow):
         result.metadata["result_saved"] = bool(
             self._context.metadata.get("result_saved", False)
         )
+        if "acquisition_modes" in self._context.metadata:
+            result.metadata["acquisition_modes"] = deepcopy(
+                self._context.metadata["acquisition_modes"]
+            )
         if "instruments" in self._context.metadata:
             result.metadata["instruments"] = deepcopy(
                 self._context.metadata["instruments"]
@@ -156,13 +160,16 @@ class ImmSpectrumOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def _acquire(self, execution: StepExecutionContext) -> None:
-        self._context.spectrum_imm = (
-            self._spectrum_analyzer.acquire_spectrum_with_trigger(
-                "IMM",
-                timeout_s=execution.remaining_s,
-                cancel_check=execution.cancel_check,
-            )
+        spectrum = self._spectrum_analyzer.acquire_spectrum_with_trigger(
+            "IMM",
+            timeout_s=execution.remaining_s,
+            cancel_check=execution.cancel_check,
         )
+        # FSW acquire_trace_ascii always arms with INITiate:CONTinuous OFF and
+        # performs exactly one INITiate, i.e. a Single spectrum acquisition.
+        spectrum.metadata["acquisition_mode"] = "single"
+        self._context.spectrum_imm = spectrum
+        self._context.metadata["acquisition_modes"] = {"fsw_imm": "single"}
 
 
 class DSOXOnlyWorkflow(_RecipeWorkflowBase):
@@ -194,12 +201,13 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def run(self, job_id: str) -> CaptureResult:
-        # Do not silently rewrite the oscilloscope trigger/acquisition settings
-        # in this workflow. A previous timeout investigation showed the actual
-        # failure was caused by a USB-to-TCP bridge converting binary waveform
-        # traffic as ASCII. Product capture should therefore preserve the
-        # configured DSO-X behavior and let the transport path remain binary
-        # transparent.
+        # Each group now follows the customer's exact physical rule: set the
+        # group parameters, issue one front-panel-equivalent :SINGle, wait for
+        # that acquisition to complete, then read/save its waveform.
+        self._context.metadata["acquisition_modes"] = {
+            "dsox_delay": "single",
+            "dsox_cycle": "single",
+        }
         return self._run_steps(
             job_id,
             self.steps,
@@ -211,7 +219,9 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def _acquire_delay_group(self, execution: StepExecutionContext) -> None:
-        delay, waveform = self._oscilloscope.acquire_delay_group()
+        delay, waveform = self._oscilloscope.acquire_delay_group(
+            cancel_check=execution.cancel_check,
+        )
         self._context.delay = delay
         self._context.waveform_delay = waveform
         self._context.metadata["waveform_channel"] = waveform.channel
@@ -220,7 +230,9 @@ class DSOXOnlyWorkflow(_RecipeWorkflowBase):
         )
 
     def _acquire_cycle_group(self, execution: StepExecutionContext) -> None:
-        cycle_count, waveform = self._oscilloscope.acquire_cycle_group()
+        cycle_count, waveform = self._oscilloscope.acquire_cycle_group(
+            cancel_check=execution.cancel_check,
+        )
         self._context.cycle_count = cycle_count
         self._context.waveform_cycle = waveform
         self._context.metadata["cycle_timebase_scale_s"] = waveform.metadata.get(

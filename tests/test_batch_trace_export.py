@@ -26,21 +26,21 @@ def _save_waveform(path: Path, scale: float) -> None:
 
 def test_export_all_batch_traces(tmp_path: Path):
     data_root = tmp_path / "data"
-    job_directory = data_root / "2026-08-26" / "job-1"
+    job_directory = data_root / "2026-08-28" / "job-1"
     job_directory.mkdir(parents=True)
 
     files = {
         "spectrum_ext": job_directory / "spectrum_ext.npz",
-        "spectrum_imm": job_directory / "spectrum_imm.npz",
-        "waveform_delay": job_directory / "waveform_delay.npz",
-        "waveform_cycle": job_directory / "waveform_cycle.npz",
+        "waveform_sync": job_directory / "waveform_sync.npz",
+        "waveform_followup": job_directory / "waveform_followup.npz",
+        "spectrum_freerun": job_directory / "spectrum_freerun.npz",
     }
     _save_spectrum(files["spectrum_ext"], 700e6, -55.0)
-    _save_spectrum(files["spectrum_imm"], 700e6, -65.0)
-    _save_waveform(files["waveform_delay"], 1e-7)
-    _save_waveform(files["waveform_cycle"], 1e-5)
+    _save_waveform(files["waveform_sync"], 2e-6)
+    _save_waveform(files["waveform_followup"], 20e-9)
+    _save_spectrum(files["spectrum_freerun"], 700e6, -65.0)
 
-    batch_directory = data_root / "batches" / "2026-08-26" / "batch-1"
+    batch_directory = data_root / "batches" / "2026-08-28" / "batch-1"
     batch_directory.mkdir(parents=True)
     manifest_path = batch_directory / "batch.json"
     manifest_path.write_text(

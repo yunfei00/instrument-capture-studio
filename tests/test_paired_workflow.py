@@ -12,7 +12,7 @@ class FakeFSW:
         return 2e-5
 
     def arm_external_current_setup(self):
-        self.calls.append(("fsw", "arm", "EXT"))
+        self.calls.append(("fsw", "arm_single", "EXT"))
 
     def read_armed_spectrum(
         self,
@@ -22,7 +22,11 @@ class FakeFSW:
         trigger_source="EXT",
     ):
         self.calls.append(("fsw", "read", trigger_source))
-        return SpectrumResult([700e6], [-50.0], {"trigger_source": "EXT"})
+        return SpectrumResult(
+            [700e6],
+            [-50.0],
+            {"trigger_source": "EXT", "acquisition_mode": "single"},
+        )
 
     def acquire_freerun_current_setup(
         self,
@@ -30,8 +34,12 @@ class FakeFSW:
         timeout_s=None,
         cancel_check=None,
     ):
-        self.calls.append(("fsw", "freerun", "IMM"))
-        return SpectrumResult([700e6], [-55.0], {"trigger_source": "IMM"})
+        self.calls.append(("fsw", "single", "IMM"))
+        return SpectrumResult(
+            [700e6],
+            [-55.0],
+            {"trigger_source": "IMM", "acquisition_mode": "single"},
+        )
 
 
 class FakeDSOX:
@@ -47,14 +55,18 @@ class FakeDSOX:
             "scale_readback_s_per_div": sweep_time_s / 10,
         }
 
-    def acquire_sync_waveform(self):
-        self.calls.append(("dsox", "sync_capture"))
+    def acquire_sync_waveform(self, *, cancel_check=None):
+        self.calls.append(("dsox", "single_sync"))
         return WaveformResult(
             channel="CH1",
             time_s=[0.0],
             voltage_v=[0.1],
             sample_rate_hz=1e9,
-            metadata={"sample_kind": "sync"},
+            metadata={
+                "sample_kind": "sync",
+                "acquisition_mode": "single",
+                "acquisition_command": ":SINGle",
+            },
         )
 
     def configure_followup_window(self):
@@ -66,14 +78,18 @@ class FakeDSOX:
             "scale_readback_s_per_div": 20e-9,
         }
 
-    def acquire_followup_waveform(self):
-        self.calls.append(("dsox", "followup_capture"))
+    def acquire_followup_waveform(self, *, cancel_check=None):
+        self.calls.append(("dsox", "single_followup"))
         return WaveformResult(
             channel="CH1",
             time_s=[0.0],
             voltage_v=[0.2],
             sample_rate_hz=1e9,
-            metadata={"sample_kind": "followup"},
+            metadata={
+                "sample_kind": "followup",
+                "acquisition_mode": "single",
+                "acquisition_command": ":SINGle",
+            },
         )
 
 
@@ -108,17 +124,24 @@ def test_paired_workflow_runs_hardware_qualified_final_order():
     assert calls == [
         ("fsw", "sweep_time"),
         ("dsox", "sync_config", 2e-5),
-        ("fsw", "arm", "EXT"),
-        ("dsox", "sync_capture"),
+        ("fsw", "arm_single", "EXT"),
+        ("dsox", "single_sync"),
         ("fsw", "read", "EXT"),
         ("dsox", "followup_config"),
-        ("dsox", "followup_capture"),
-        ("fsw", "freerun", "IMM"),
+        ("dsox", "single_followup"),
+        ("fsw", "single", "IMM"),
     ]
     assert result.metadata["schema_version"] == 1
     assert result.metadata["capture_complete"] is True
+    assert result.metadata["acquisition_modes"] == {
+        "fsw_ext": "single",
+        "dsox_sync": "single",
+        "dsox_followup": "single",
+        "fsw_freerun": "single",
+    }
     assert sink.context.is_paired_complete is True
     assert sink.context.waveform_sync.metadata["sample_kind"] == "sync"
+    assert sink.context.waveform_sync.metadata["acquisition_command"] == ":SINGle"
     assert sink.context.waveform_followup.metadata["sample_kind"] == "followup"
     assert sink.context.metadata["waveform_channel"] == "CH1"
     assert sink.context.metadata["fsw_sweep_time_s"] == 2e-5

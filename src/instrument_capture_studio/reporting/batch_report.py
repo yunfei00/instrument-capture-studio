@@ -1,4 +1,4 @@
-"""Generate lightweight offline HTML reports for formal Recipe batches."""
+"""Generate lightweight offline HTML reports for final paired Recipe batches."""
 
 import csv
 from dataclasses import dataclass
@@ -10,7 +10,6 @@ import numpy as np
 from instrument_capture_studio.data.batch_manifest import load_batch_manifest
 from instrument_capture_studio.data.timing import (
     BatchTimingSummary,
-    TimingMetric,
     summarize_batch_timings,
 )
 from instrument_capture_studio.data.trace_preview import TracePreview, load_trace_preview
@@ -26,19 +25,22 @@ class BatchReportResult:
 
 _TRACE_COLUMNS = (
     ("spectrum_ext.npz", "spectrum-ext", "查看 EXT 频谱"),
-    ("spectrum_imm.npz", "spectrum-imm", "查看 IMM 频谱"),
-    ("waveform_delay.npz", "waveform-delay", "查看 DELAY 波形"),
-    ("waveform_cycle.npz", "waveform-cycle", "查看 CYCLE 波形"),
+    ("waveform_sync.npz", "waveform-sync", "查看同步波形"),
+    ("waveform_followup.npz", "waveform-followup", "查看第二次波形"),
+    ("spectrum_freerun.npz", "spectrum-freerun", "查看 Free Run 频谱"),
 )
 
 _TIMING_LABELS = {
     "frequency_config": "FSW 频率配置",
     "job_total": "完整 Job",
+    "fsw_sweep_time": "读取 FSW Sweep Time",
+    "dsox_sync_config": "配置 DSO-X 同步窗口",
     "fsw_ext_arm": "FSW EXT ARM",
-    "dsox_delay_group": "DSO-X DELAY 组",
+    "dsox_sync_capture": "DSO-X 第一次同步采集",
     "fsw_ext_read": "FSW EXT wait/read",
-    "dsox_cycle_group": "DSO-X CYCLE 组",
-    "fsw_imm": "FSW IMM",
+    "dsox_followup_config": "配置 DSO-X 第二次窗口",
+    "dsox_followup_capture": "DSO-X 第二次采集",
+    "fsw_freerun": "FSW Free Run",
     "save_result": "保存结果",
 }
 
@@ -47,13 +49,7 @@ def export_batch_report(
     manifest_path: Path,
     output_directory: Path | None = None,
 ) -> BatchReportResult:
-    """Create an HTML summary plus representative formal Recipe traces.
-
-    One representative successful Job is plotted for each frequency point. A
-    paired training Job can contribute four traces: EXT spectrum, IMM spectrum,
-    DELAY waveform and CYCLE_COUNT waveform. The full Job list stays in jobs.csv
-    and persisted node timings are summarized as avg/P95/max in timing.csv.
-    """
+    """Create HTML, jobs.csv and timing.csv for one formal paired Batch."""
 
     manifest_path = Path(manifest_path)
     manifest = load_batch_manifest(manifest_path)
@@ -114,9 +110,9 @@ def export_batch_report(
             f"<td>{successful_count}</td>"
             f"<td>{representative_job}</td>"
             f"<td>{cells['spectrum-ext']}</td>"
-            f"<td>{cells['spectrum-imm']}</td>"
-            f"<td>{cells['waveform-delay']}</td>"
-            f"<td>{cells['waveform-cycle']}</td>"
+            f"<td>{cells['waveform-sync']}</td>"
+            f"<td>{cells['waveform-followup']}</td>"
+            f"<td>{cells['spectrum-freerun']}</td>"
             "</tr>"
         )
 
@@ -367,7 +363,7 @@ a{{color:#175cd3;text-decoration:none}}
 <div class="kpi"><div class="value">{failed}</div><div>失败 Job</div></div>
 <div class="kpi"><div class="value">{recovery_count}</div><div>自动恢复事件</div></div>
 <p>频率：{plan_value('start_hz', 1e6)}–{plan_value('stop_hz', 1e6)} MHz，步长 {plan_value('step_hz', 1e6)} MHz，Span {plan_value('span_hz', 1e6)} MHz，每频点 {escape(str(plan.get('captures_per_frequency') or '—'))} 次。</p>
-<p>正式配对样本：FSW EXT + FSW IMM + DSO-X DELAY 波形 + DSO-X CYCLE_COUNT 波形。</p>
+<p>正式配对样本：FSW EXT 频谱 + DSO-X 同步波形 + DSO-X 第二次独立波形 + FSW Free Run 频谱。</p>
 <p><a href="{escape(jobs_csv_name)}">完整 Job 明细 CSV</a> · <a href="{escape(timing_csv_name)}">节点耗时 CSV</a></p>
 </div>
 <div class="card">
@@ -383,7 +379,7 @@ a{{color:#175cd3;text-decoration:none}}
 <div class="card">
 <h2>频点结果</h2>
 <table>
-<thead><tr><th>#</th><th>中心频率 (MHz)</th><th>成功次数</th><th>代表 Job</th><th>EXT</th><th>IMM</th><th>DELAY 波形</th><th>CYCLE 波形</th></tr></thead>
+<thead><tr><th>#</th><th>中心频率 (MHz)</th><th>成功次数</th><th>代表 Job</th><th>EXT</th><th>同步波形</th><th>第二次波形</th><th>Free Run</th></tr></thead>
 <tbody>
 {frequency_rows}
 </tbody>

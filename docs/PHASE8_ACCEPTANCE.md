@@ -61,6 +61,10 @@ Phase 8 之前产生的单次数据和 2100 次 Batch 数据均视为开发调�
 
 只连接 DSO-X，不要求 FSW 在线；Waveform Channel 可选 CH1–CH4；仍按 DELAY / CYCLE 两组独立采集。
 
+调试期间出现过 `dsox_delay_group / acquire_word_waveform` VISA Timeout。最终定位为现场 USB→TCP 转接工具把 `:WAVeform:DATA?` 的二进制 IEEE 488.2 block 按 ASCII 文本转换，不是 DSO-X SCPI 指令、Trigger Sweep 或 Acquisition Type 本身的问题。转接工具已改为二进制透明模式。
+
+基于该误判加入的 DSO-X-only `AUTO + NORMal` 隐式改写已从正式 Workflow 撤销；平台仍保留 trigger/acquisition setter 作为正常驱动能力。USB/TCP 转接链路要求已记录到 instrument-automation-platform 的 DSO-X hardware transport 文档。
+
 状态：**PASS**
 
 ### B4. 正式数据契约
@@ -86,7 +90,7 @@ YYYY-MM-DD/
 
 Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight 已全部对齐正式命名。
 
-**2026-08-27：Phase 8A COMPLETE，正式 Schema v1 冻结。**
+**2026-08-28：Phase 8A COMPLETE，正式 Schema v1 冻结。**
 
 ## C. Phase 8B：暂停 / 停止后继续 / 意外退出恢复
 
@@ -137,7 +141,7 @@ Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight �
 
 状态：**SOFTWARE COMPLETE / HARDWARE DATA REVIEW PENDING**
 
-剩余动作：使用 Phase 8B 已通过的 10 次数据核对 `timing.csv` / HTML 数值是否与实际采集时间量级一致。
+剩余动作：使用已通过的小批量数据核对 `timing.csv` / HTML 数值是否与实际采集时间量级一致。
 
 ## E. Phase 8D：异常与恢复验收
 
@@ -153,7 +157,7 @@ Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight �
 真机必须完成：
 
 1. FSW 物理断线 → 插回 → 自动恢复。
-2. DSO-X 物理断线 → 插回 → 自动恢复。
+2. DSO-X 物理断线 → 插回 → 自动恢复；当前现场链路为 USB→TCP Bridge，按真实桥接链路断开/恢复测试。
 3. 仪表保持断开直到最大重试次数耗尽，最终明确 FAILED，不无限重试。
 4. EXT Trigger Timeout 不误进入 `RECONNECTING`，FSW 安全 ABORt。
 5. 采集中关闭 GUI：先安全停止，再自动退出；重新启动后识别未完成任务并可继续。

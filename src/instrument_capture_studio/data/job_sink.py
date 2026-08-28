@@ -55,15 +55,13 @@ class JobDirectoryResultSink:
         write_capture_metadata(layout.metadata_path, metadata)
         output_files = [str(layout.metadata_path)]
 
-        # Legacy internal debugging artifacts. Formal Phase-8 recipes do not
-        # use these generic names.
+        # Internal legacy/debug artifacts.
         if context.spectrum is not None:
             write_spectrum_csv(layout.spectrum_csv_path, context.spectrum)
             write_spectrum_npz(layout.spectrum_npz_path, context.spectrum)
             output_files.extend(
                 (str(layout.spectrum_csv_path), str(layout.spectrum_npz_path))
             )
-
         if context.waveform is not None:
             write_waveform_csv(layout.waveform_csv_path, context.waveform)
             write_waveform_npz(layout.waveform_npz_path, context.waveform)
@@ -71,53 +69,74 @@ class JobDirectoryResultSink:
                 (str(layout.waveform_csv_path), str(layout.waveform_npz_path))
             )
 
-        # Formal recipe spectrum artifacts.
+        # Final paired recipe artifacts.
         if context.spectrum_ext is not None:
             write_spectrum_csv(layout.spectrum_ext_csv_path, context.spectrum_ext)
             write_spectrum_npz(layout.spectrum_ext_npz_path, context.spectrum_ext)
             output_files.extend(
+                (str(layout.spectrum_ext_csv_path), str(layout.spectrum_ext_npz_path))
+            )
+        if context.waveform_sync is not None:
+            write_waveform_csv(layout.waveform_sync_csv_path, context.waveform_sync)
+            write_waveform_npz(layout.waveform_sync_npz_path, context.waveform_sync)
+            output_files.extend(
+                (str(layout.waveform_sync_csv_path), str(layout.waveform_sync_npz_path))
+            )
+        if context.waveform_followup is not None:
+            write_waveform_csv(
+                layout.waveform_followup_csv_path,
+                context.waveform_followup,
+            )
+            write_waveform_npz(
+                layout.waveform_followup_npz_path,
+                context.waveform_followup,
+            )
+            output_files.extend(
                 (
-                    str(layout.spectrum_ext_csv_path),
-                    str(layout.spectrum_ext_npz_path),
+                    str(layout.waveform_followup_csv_path),
+                    str(layout.waveform_followup_npz_path),
+                )
+            )
+        if context.spectrum_freerun is not None:
+            write_spectrum_csv(
+                layout.spectrum_freerun_csv_path,
+                context.spectrum_freerun,
+            )
+            write_spectrum_npz(
+                layout.spectrum_freerun_npz_path,
+                context.spectrum_freerun,
+            )
+            output_files.extend(
+                (
+                    str(layout.spectrum_freerun_csv_path),
+                    str(layout.spectrum_freerun_npz_path),
                 )
             )
 
+        # Standalone v1 recipes.
         if context.spectrum_imm is not None:
             write_spectrum_csv(layout.spectrum_imm_csv_path, context.spectrum_imm)
             write_spectrum_npz(layout.spectrum_imm_npz_path, context.spectrum_imm)
             output_files.extend(
-                (
-                    str(layout.spectrum_imm_csv_path),
-                    str(layout.spectrum_imm_npz_path),
-                )
+                (str(layout.spectrum_imm_csv_path), str(layout.spectrum_imm_npz_path))
             )
-
-        # The two oscilloscope acquisitions are separate physical captures and
-        # must never overwrite each other.
         if context.waveform_delay is not None:
             write_waveform_csv(layout.waveform_delay_csv_path, context.waveform_delay)
             write_waveform_npz(layout.waveform_delay_npz_path, context.waveform_delay)
             output_files.extend(
-                (
-                    str(layout.waveform_delay_csv_path),
-                    str(layout.waveform_delay_npz_path),
-                )
+                (str(layout.waveform_delay_csv_path), str(layout.waveform_delay_npz_path))
             )
-
         if context.waveform_cycle is not None:
             write_waveform_csv(layout.waveform_cycle_csv_path, context.waveform_cycle)
             write_waveform_npz(layout.waveform_cycle_npz_path, context.waveform_cycle)
             output_files.extend(
-                (
-                    str(layout.waveform_cycle_csv_path),
-                    str(layout.waveform_cycle_npz_path),
-                )
+                (str(layout.waveform_cycle_csv_path), str(layout.waveform_cycle_npz_path))
             )
 
         return tuple(output_files)
 
     def save_job(self, result: CaptureResult) -> str:
-        """保存最终 Job 执行清单。"""
+        """Persist the final Job execution manifest."""
         if result.started_at is None:
             captured_at = self._clock()
         elif result.started_at.tzinfo is None:

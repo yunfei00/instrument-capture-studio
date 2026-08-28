@@ -127,7 +127,7 @@ Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格�
 - Data Browser / Trace Viewer / HTML Report / 全量曲线导出 / Phase 8 preflight 已适配正式命名。
 - 2026-08-27：真实单次 `EXT联合 + IMM配对样本` 真机采集通过，四类数据文件均正确生成。
 - 2026-08-27：`IMM频谱单采 × 1` 真机通过。
-- 2026-08-27：`DSO-X示波器单采 × 1` 真机通过。
+- 2026-08-28：`DSO-X示波器单采 × 1` 真机通过；此前 Timeout 最终定位为 USB→TCP 转发工具误把二进制 Waveform 数据做 ASCII 转换，转发链路修复后通过。
 
 正式 Schema v1 至此冻结；后续 Phase 8 不再调整其核心采集语义和文件命名，除非发现阻塞发布的数据一致性缺陷。
 
@@ -169,24 +169,27 @@ Phase 5 使用的旧 `spectrum.csv / spectrum.npz` 目录属于开发阶段格�
 
 ### Phase 8D - 异常与恢复真机验收
 
-状态：**IN PROGRESS**
+状态：**COMPLETE**
 
-软件侧 Release Hardening：
+软件与真机验收已完成：
 
-- 采集中关闭 GUI 时不再强制销毁 VISA Worker Thread。
-- 关闭请求转换为协作式停止，等待当前仪表操作安全结束并释放会话后自动退出。
-- 连接测试尚未结束时关闭 GUI，同样等待测试完成后再退出。
-- 不使用 `QThread.terminate()` 等强制线程终止方式。
-- Release Window 继续继承 Phase 8B 的冻结参数与断点续采能力，不回退已验收功能。
-- Windows CI smoke test 已切换到真实 `release_window`，同时验证安全关闭状态字段和 Phase 8A/8B 控件仍存在。
+- 采集中关闭 GUI 时不强制销毁 VISA Worker Thread；关闭请求转换为协作式停止，等待当前仪表操作安全结束并释放会话后自动退出。
+- 连接测试尚未结束时关闭 GUI，同样等待测试完成后再退出，不使用 `QThread.terminate()`。
+- Release Window 继续继承 Phase 8B 的冻结参数与断点续采能力。
+- Windows CI smoke test 使用真实 `release_window`。
+- FSW 物理网线断开后插回，GUI 进入 `RECONNECTING` 并自动恢复继续采集：PASS。
+- DSO-X 当前 USB→TCP Bridge 的 TCP/网线链路断开后恢复，可自动重连并继续采集：PASS。
+- 保持断线直到最大尝试次数耗尽，最终明确 `FAILED`，不会无限重试：PASS。
+- EXT Trigger Timeout 在 `fsw_ext_read` 正确超时并 `FAILED`，不会误进入 `RECONNECTING`；触发线恢复后下一次单采正常：PASS。
+- 采集中直接关闭 GUI，能够安全停止并自动退出；重新打开后可识别未完成任务并继续：PASS。
 
-剩余真机验收：FSW / DSO-X 物理断线恢复、最大重试失败、Trigger Timeout 不误重连，以及采集中关闭 GUI 的完整安全退出与恢复。
+USB→TCP Bridge 的 USB/转发器侧直接拔除属于桥接层特有故障，本版本列为 OPTIONAL，不阻塞 v1.0.0。
 
 ### Phase 8E - Release Candidate
 
-状态：**PENDING**
+状态：**IN PROGRESS**
 
-完成新正式格式 preflight、Windows EXE 真机验收、三种 Recipe 验收以及最终发布检查。
+下一步完成节点耗时真机数据复核、Release Candidate Windows 构建与真机验收，然后执行最终发布检查。
 
 全部通过后：
 

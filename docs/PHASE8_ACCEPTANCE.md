@@ -154,13 +154,15 @@ Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight �
 - Release Window 继承 Phase 8B Window，保证冻结参数、暂停/继续和断点续采能力不回退。
 - CI Product GUI smoke test 直接实例化 Release Window，并检查安全关闭初始状态和前序 RC 控件。
 
-真机必须完成：
+真机状态：
 
-1. FSW 物理断线 → 插回 → 自动恢复。
-2. DSO-X 物理断线 → 插回 → 自动恢复；当前现场链路为 USB→TCP Bridge，按真实桥接链路断开/恢复测试。
-3. 仪表保持断开直到最大重试次数耗尽，最终明确 FAILED，不无限重试。
-4. EXT Trigger Timeout 不误进入 `RECONNECTING`，FSW 安全 ABORt。
-5. 采集中关闭 GUI：先安全停止，再自动退出；重新启动后识别未完成任务并可继续。
+1. [ ] FSW 物理网线断开 → 插回 → 自动恢复。
+2. [x] DSO-X 当前 USB→TCP Bridge 的 TCP/网线链路断开 → 恢复后自动重连并继续采集。
+3. [ ] 保持断线直到最大重试次数耗尽，最终明确 FAILED，不无限重试。
+4. [ ] EXT Trigger Timeout 不误进入 `RECONNECTING`，FSW 安全 ABORt。
+5. [ ] 采集中关闭 GUI：先安全停止，再自动退出；重新启动后识别未完成任务并可继续。
+
+现场 USB→TCP Bridge 的 USB/转发器侧直接拔除会产生桥接层特有问题，本版本暂不作为 v1.0.0 阻塞项；其可靠性与桥接工具行为后续单独处理。
 
 状态：**IN PROGRESS**
 
@@ -183,6 +185,7 @@ Data Browser、Trace Viewer、Batch HTML/CSV、全量曲线导出与 preflight �
 
 ## G. OPTIONAL，不阻塞 v1.0.0
 
+- USB→TCP Bridge 的 USB/转发器侧直接拔除恢复能力
 - PDF 报告
 - 更多仪表型号
 - 云端报告

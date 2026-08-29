@@ -1,13 +1,14 @@
 """Delivery-ready visual refinements for the Final-RC desktop workspace.
 
 This layer is intentionally presentation-only. It keeps all qualified capture,
-resume, recovery, reporting and VISA behavior intact while tightening the two
-most frequently used pages after real-device screenshot review.
+resume, recovery, reporting and VISA behavior intact while tightening the most
+frequently used pages after real-device screenshot review.
 """
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QFormLayout, QGridLayout, QLabel
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFormLayout, QGridLayout, QLabel, QSizePolicy
 
 from instrument_capture_studio.app.capture_recipe import CaptureRecipe
 from instrument_capture_studio.ui.workspace_window import MainWindow as WorkspaceWindow
@@ -21,6 +22,7 @@ class MainWindow(WorkspaceWindow):
         self._install_delivery_refinement()
         self._refresh_connection_card_visibility()
         self._refresh_delivery_flow_summary()
+        self._refresh_data_empty_hint()
         self.statusBar().showMessage("就绪")
 
     # ------------------------------------------------------------------
@@ -51,6 +53,27 @@ class MainWindow(WorkspaceWindow):
         if label is not None:
             label.setText("连接测试失败 · 请检查 VISA 地址与物理链路")
             label.setToolTip(f"{error_type}: {message}")
+
+    def _refresh_data_empty_hint(self) -> None:
+        """Use a deliberate empty state instead of a mostly blank result tree."""
+        super()._refresh_data_empty_hint()
+        if not hasattr(self, "data_empty_hint") or not hasattr(self, "data_tree"):
+            return
+
+        empty = self.data_tree.topLevelItemCount() == 0
+        if not empty:
+            first = self.data_tree.topLevelItem(0)
+            empty = first is not None and first.text(0) == "暂无数据"
+
+        self.data_tree.setVisible(not empty)
+        self.data_empty_hint.setVisible(empty)
+        if empty:
+            self.data_empty_hint.setText(
+                "当前数据目录暂无可浏览的 Batch / Job\n"
+                "完成一次采集后，结果会自动出现在这里。"
+            )
+            self.data_empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.data_empty_hint.setMinimumHeight(96)
 
     # ------------------------------------------------------------------
     # Installation
@@ -108,6 +131,12 @@ class MainWindow(WorkspaceWindow):
         label = QLabel(text)
         label.setObjectName("instrumentIdentity")
         label.setWordWrap(True)
+        label.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        label.setMinimumHeight(38)
+        label.setMaximumHeight(46)
         return label
 
     def _rehome_workspace_instrument_hints(self) -> None:
@@ -117,7 +146,17 @@ class MainWindow(WorkspaceWindow):
         ):
             layout = group.layout() if group is not None else None
             if isinstance(layout, QGridLayout):
+                hint.setSizePolicy(
+                    QSizePolicy.Policy.Expanding,
+                    QSizePolicy.Policy.Fixed,
+                )
+                hint.setMinimumHeight(48)
+                hint.setMaximumHeight(68)
                 layout.addWidget(hint, 4, 0, 1, 4)
+                # The two instrument cards share one outer grid row. When one
+                # card has fewer visible parameter fields, put spare height into
+                # a neutral trailing stretch rather than inflating hint labels.
+                layout.setRowStretch(5, 1)
 
     # ------------------------------------------------------------------
     # Dynamic presentation
@@ -141,7 +180,7 @@ class MainWindow(WorkspaceWindow):
         if dsox_params is not None:
             # In the paired recipe every legacy DELAY/CYCLE field is already
             # hidden. Collapse the empty container itself so the connection
-            # card does not show a large blank grey block.
+            # card does not show a large blank parameter block.
             dsox_params.setVisible(recipe is CaptureRecipe.DSOX_ONLY)
 
         self.fsw_identity_label.setVisible(requires_fsw)
@@ -219,6 +258,14 @@ class MainWindow(WorkspaceWindow):
                 border-radius: 6px;
                 color: #475467;
                 font-size: 12px;
+            }
+            QLabel#dataEmptyHint {
+                background: #f8fbff;
+                color: #315b8a;
+                border: 1px dashed #bfd5ee;
+                border-radius: 9px;
+                padding: 18px;
+                font-size: 13px;
             }
             """
         )

@@ -5,7 +5,7 @@ import sys
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
-from instrument_capture_studio.ui.recipe_alignment_window import MainWindow
+from instrument_capture_studio.ui.commercial_window import MainWindow
 
 
 _RELEASE_LABEL = "v1.0.0 · Final RC"
@@ -23,13 +23,15 @@ def create_application(argv: list[str] | None = None) -> QApplication:
 
 
 def create_main_window() -> MainWindow:
-    """Create the final integrated RC window while retaining diagnostics."""
+    """Create the final commercial RC shell while retaining qualified logic."""
     window = MainWindow()
     badge = window.findChild(QLabel, "alphaBadge")
     if badge is not None:
         badge.setText(_RELEASE_LABEL)
         badge.setMinimumWidth(170)
-    window.statusBar().showMessage("就绪 · v1.0.0 Final RC · Single 一键流程待最终真机确认")
+    window.statusBar().showMessage(
+        "就绪 · v1.0.0 Final RC · 商业版分页界面"
+    )
     return window
 
 

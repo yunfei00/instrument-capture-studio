@@ -7,7 +7,7 @@ v1.0.0 第一版范围固定为：
 - Keysight DSO-X 3034A 示波器
 - Rohde & Schwarz FSW 频谱分析仪
 
-当前版本：**v1.0.0 Final RC**。正式 Tag 尚未创建，等待最后一次一键真机确认。
+当前代码版本：**v1.0.0**。正式 Tag 创建后，GitHub Actions 会自动构建 Windows x64 安装包归档并发布 Release。
 
 ## 项目定位
 
@@ -152,14 +152,16 @@ batches/YYYY-MM-DD/<batch_id>/batch.json
 batch-configs/<batch_id>.json
 ```
 
-## 发布前检查
+## 发布检查
 
 ```powershell
 python scripts\phase8_preflight.py --self-check
 python scripts\phase8_preflight.py --data-root <数据目录>
 ```
 
-最终 v1.0.0 前只剩：CI 全绿、一键完整配对真机确认、小批量快速回归、Windows RC 启动/数据检查。8 个工程单步已经完成，不需要重新做。
+v1.0.0 发布前确认：CI 全绿；一键完整配对真机确认；小批量快速回归；Windows EXE 启动、连接、采集和数据浏览检查。8 个工程单步已经完成，不需要重新做。
+
+创建 `v1.0.0` Tag 后，`.github/workflows/windows-gui-release.yml` 会自动执行测试、回归、GUI 冒烟测试、PyInstaller 构建，并生成 GitHub Release 与 `InstrumentCaptureStudio-windows-x64.zip`。
 
 ## 文档
 

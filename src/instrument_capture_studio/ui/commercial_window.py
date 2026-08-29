@@ -1,7 +1,7 @@
 """Commercial v1 desktop shell with task-oriented navigation pages.
 
 This module intentionally rearranges the already-qualified controls instead of
-re-implementing capture behavior.  All existing controller, recovery, resume,
+re-implementing capture behavior. All existing controller, recovery, resume,
 reporting and engineering-debug actions remain the same objects; only their
 presentation is reorganized into a commercial desktop information architecture.
 """
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
+    QFormLayout,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -23,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from instrument_capture_studio.app.capture_recipe import CaptureRecipe, ExecutionMode
 from instrument_capture_studio.ui.recipe_alignment_window import (
     MainWindow as RecipeAlignmentWindow,
 )
@@ -49,6 +51,7 @@ class MainWindow(RecipeAlignmentWindow):
         self._commercial_status_timer.setInterval(500)
         self._commercial_status_timer.timeout.connect(self._refresh_quick_status)
         self._commercial_status_timer.start()
+        self._sync_recipe_controls()
         self._refresh_quick_status()
         self.statusBar().showMessage("就绪 · v1.0.0 Final RC · 商业版分页界面")
 
@@ -61,9 +64,9 @@ class MainWindow(RecipeAlignmentWindow):
         if not isinstance(root, QVBoxLayout):
             raise RuntimeError("commercial shell requires the base QVBoxLayout")
 
-        # The legacy window is header + one vertical splitter.  All qualified
-        # controls live under that splitter.  Detach the splitter and re-home
-        # those exact widgets into task-oriented pages.
+        # The legacy window is header + one vertical splitter. All qualified
+        # controls live under that splitter. Detach it and re-home those exact
+        # widgets into task-oriented pages so behavior stays unchanged.
         legacy_item = root.takeAt(1)
         legacy_splitter = legacy_item.widget() if legacy_item is not None else None
         if legacy_splitter is None:
@@ -77,6 +80,7 @@ class MainWindow(RecipeAlignmentWindow):
         if None in (fsw_group, dsox_group, capture_group, data_group, log_group):
             raise RuntimeError("one or more qualified UI groups were not found")
 
+        capture_group.setTitle("采集任务")
         self._extract_secondary_controls(capture_group)
 
         quick_status = self._build_quick_status_strip(central)
@@ -94,11 +98,11 @@ class MainWindow(RecipeAlignmentWindow):
 
         task_page, task_body = self._make_page(
             "任务采集",
-            "只保留采集 Recipe、执行方式、任务参数、开始/暂停/停止与续采状态。",
+            "只保留采集 Recipe、执行方式、任务关键参数、开始/暂停/停止与续采状态。",
         )
         instrument_page, instrument_body = self._make_page(
             "仪表连接",
-            "连接测试和仪表级参数集中在这里；正式采集页不再堆叠设备配置。",
+            "连接测试和仪表级参数集中在这里；正式采集页不再堆叠设备连接配置。",
         )
         data_page, data_body = self._make_page(
             "数据与报告",
@@ -120,6 +124,7 @@ class MainWindow(RecipeAlignmentWindow):
         )
 
         self._move_group(capture_group, task_body)
+        self._build_task_parameter_card(task_body)
         task_body.addStretch(1)
 
         instrument_grid = QGridLayout()
@@ -167,7 +172,7 @@ class MainWindow(RecipeAlignmentWindow):
         self.setMinimumSize(1120, 720)
 
     def _extract_secondary_controls(self, capture_group: QWidget) -> None:
-        """Remove template/debug rows from the task card before paging them."""
+        """Remove template/debug/legacy help rows from the primary task card."""
         layout = capture_group.layout()
         if not isinstance(layout, QGridLayout):
             raise RuntimeError("capture group must use QGridLayout")
@@ -179,9 +184,10 @@ class MainWindow(RecipeAlignmentWindow):
             layout.removeWidget(self._template_toolbar)
         layout.removeWidget(self._debug_action_button)
 
-        # Rows 5 and 9 were previously inline template and engineering-debug
-        # rows.  Hide the old labels/notes after moving the interactive widgets.
-        for row in (5, 9):
+        # Row 2 is an old connection-lifecycle explanation. Rows 5 and 9 were
+        # inline template and engineering-debug rows. They are secondary in the
+        # commercial shell and now have dedicated pages.
+        for row in (2, 5, 9):
             for column in range(6):
                 item = layout.itemAtPosition(row, column)
                 widget = item.widget() if item is not None else None
@@ -191,6 +197,63 @@ class MainWindow(RecipeAlignmentWindow):
         if self._template_toolbar is not None:
             self._template_toolbar.show()
         self._debug_action_button.show()
+
+    def _build_task_parameter_card(self, layout: QVBoxLayout) -> None:
+        """Move only task-facing parameters out of instrument connection cards."""
+        card = QGroupBox("任务关键参数")
+        card.setObjectName("taskParameterCard")
+        grid = QGridLayout(card)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+
+        fields = (
+            self.center_hz_edit,
+            self.span_hz_edit,
+            self.waveform_channel_spin,
+            self.followup_position_edit,
+            self.followup_scale_edit,
+        )
+        for field in fields:
+            self._detach_form_field(field)
+
+        self.task_center_label = QLabel("固定频率 Center (Hz)")
+        self.task_span_label = QLabel("固定频率 Span (Hz)")
+        self.task_channel_label = QLabel("Waveform Channel")
+        self.task_followup_position_label = QLabel("第二次 Position (s)")
+        self.task_followup_scale_label = QLabel("第二次 Scale (s/div)")
+
+        grid.addWidget(self.task_center_label, 0, 0)
+        grid.addWidget(self.center_hz_edit, 0, 1)
+        grid.addWidget(self.task_span_label, 0, 2)
+        grid.addWidget(self.span_hz_edit, 0, 3)
+        grid.addWidget(self.task_channel_label, 1, 0)
+        grid.addWidget(self.waveform_channel_spin, 1, 1)
+        grid.addWidget(self.task_followup_position_label, 1, 2)
+        grid.addWidget(self.followup_position_edit, 1, 3)
+        grid.addWidget(self.task_followup_scale_label, 2, 2)
+        grid.addWidget(self.followup_scale_edit, 2, 3)
+
+        self.task_parameter_hint = QLabel(card)
+        self.task_parameter_hint.setObjectName("commercialHint")
+        self.task_parameter_hint.setWordWrap(True)
+        grid.addWidget(self.task_parameter_hint, 3, 0, 1, 4)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+
+        self.commercial_task_parameter_card = card
+        layout.addWidget(card)
+
+    @staticmethod
+    def _detach_form_field(field: QWidget) -> None:
+        parent = field.parentWidget()
+        form = parent.layout() if parent is not None else None
+        if not isinstance(form, QFormLayout):
+            return
+        label = form.labelForField(field)
+        form.removeWidget(field)
+        if label is not None:
+            form.removeWidget(label)
+            label.hide()
 
     def _build_sidebar(self, parent: QWidget) -> QWidget:
         sidebar = QFrame(parent)
@@ -235,12 +298,15 @@ class MainWindow(RecipeAlignmentWindow):
         self.quick_dsox_status.setObjectName("quickStatusChip")
         self.quick_job_status = QLabel(frame)
         self.quick_job_status.setObjectName("quickStatusChip")
+        self.quick_mode_status = QLabel(frame)
+        self.quick_mode_status.setObjectName("quickStatusChip")
         self.quick_data_root = QLabel(frame)
         self.quick_data_root.setObjectName("quickStatusPath")
 
         layout.addWidget(self.quick_fsw_status)
         layout.addWidget(self.quick_dsox_status)
         layout.addWidget(self.quick_job_status)
+        layout.addWidget(self.quick_mode_status)
         layout.addStretch(1)
         layout.addWidget(self.quick_data_root)
         return frame
@@ -312,7 +378,8 @@ class MainWindow(RecipeAlignmentWindow):
         card_layout.addWidget(intro)
 
         if self._template_toolbar is not None:
-            old_layout = self._template_toolbar.parentWidget().layout()
+            old_parent = self._template_toolbar.parentWidget()
+            old_layout = old_parent.layout() if old_parent is not None else None
             if old_layout is not None:
                 old_layout.removeWidget(self._template_toolbar)
             card_layout.addWidget(self._template_toolbar)
@@ -346,9 +413,6 @@ class MainWindow(RecipeAlignmentWindow):
         info_layout = QGridLayout(info)
         info_layout.addWidget(QLabel("当前数据目录"), 0, 0)
         self.settings_data_root_label = QLabel()
-        self.settings_data_root_label.setTextInteractionFlags(
-            self.quick_data_root.textInteractionFlags()
-        )
         self.settings_data_root_label.setWordWrap(True)
         info_layout.addWidget(self.settings_data_root_label, 0, 1)
 
@@ -370,6 +434,100 @@ class MainWindow(RecipeAlignmentWindow):
         layout.setStretch(layout.count() - 1, 1)
 
     # ------------------------------------------------------------------
+    # Recipe-aware presentation
+    # ------------------------------------------------------------------
+    def _sync_recipe_controls(self, *_args) -> None:
+        super()._sync_recipe_controls(*_args)
+        if not hasattr(self, "commercial_task_parameter_card"):
+            return
+        self._refresh_task_parameter_visibility()
+        self._refresh_standalone_dsox_visibility()
+
+    def _sync_sweep_mode(self, *_args) -> None:
+        super()._sync_sweep_mode(*_args)
+        if hasattr(self, "commercial_task_parameter_card"):
+            self._refresh_task_parameter_visibility()
+
+    def _refresh_task_parameter_visibility(self) -> None:
+        recipe = self._selected_recipe()
+        mode = self._selected_execution_mode()
+        paired = recipe is CaptureRecipe.EXT_IMM_PAIR
+        dsox_required = recipe in {
+            CaptureRecipe.EXT_IMM_PAIR,
+            CaptureRecipe.DSOX_ONLY,
+        }
+
+        show_fixed_frequency = (
+            recipe is CaptureRecipe.IMM_SPECTRUM_ONLY
+            or (paired and mode is ExecutionMode.FIXED_REPEAT)
+        )
+        for label, field in (
+            (self.task_center_label, self.center_hz_edit),
+            (self.task_span_label, self.span_hz_edit),
+        ):
+            label.setVisible(show_fixed_frequency)
+            field.setVisible(show_fixed_frequency)
+
+        self.task_channel_label.setVisible(dsox_required)
+        self.waveform_channel_spin.setVisible(dsox_required)
+
+        for label, field in (
+            (self.task_followup_position_label, self.followup_position_edit),
+            (self.task_followup_scale_label, self.followup_scale_edit),
+        ):
+            label.setVisible(paired)
+            field.setVisible(paired)
+
+        if paired and mode is ExecutionMode.SINGLE:
+            hint = (
+                "FSW 测量参数和 Sweep Time 由测试人员在仪表上预先设置；软件实时读取 Sweep Time。"
+                "第一次示波器窗口自动计算为 Position=T/2、Scale=T/10。"
+            )
+        elif paired and mode is ExecutionMode.FREQUENCY_SWEEP:
+            hint = (
+                "频率计划使用上方起始/结束/步长/Span；每个频点仍实时读取 FSW Sweep Time，"
+                "两次 DSO-X 均执行 Single。"
+            )
+        elif paired:
+            hint = (
+                "固定频率重复使用这里的 Center/Span 作为任务计划；FSW 其他测量参数由测试前配置，"
+                "Sweep Time 每个 Job 实时读取。"
+            )
+        elif recipe is CaptureRecipe.IMM_SPECTRUM_ONLY:
+            hint = "FSW 单采使用 IMM / Free Run 的一次 Single Sweep。"
+        else:
+            hint = "DSO-X 单采使用所选 Waveform Channel；DELAY/CYCLE 详细参数在“仪表连接”页。"
+        self.task_parameter_hint.setText(hint)
+
+    def _refresh_standalone_dsox_visibility(self) -> None:
+        recipe = self._selected_recipe()
+        standalone = recipe is CaptureRecipe.DSOX_ONLY
+        for field in (
+            self.delay_source1_edit,
+            self.delay_source2_edit,
+            self.delay_edge1_combo,
+            self.delay_edge2_combo,
+            self.cycle_source_edit,
+            self.delay_timebase_scale_edit,
+            self.cycle_timebase_scale_edit,
+        ):
+            self._set_form_field_visibility(field, standalone)
+
+        # Trigger source is owned by the formal Recipe (EXT -> IMM, or IMM-only)
+        # and is not an operator-facing setting in v1.
+        self._set_form_field_visibility(self.trigger_source_combo, False)
+
+    @staticmethod
+    def _set_form_field_visibility(field: QWidget, visible: bool) -> None:
+        parent = field.parentWidget()
+        form = parent.layout() if parent is not None else None
+        field.setVisible(visible)
+        if isinstance(form, QFormLayout):
+            label = form.labelForField(field)
+            if label is not None:
+                label.setVisible(visible)
+
+    # ------------------------------------------------------------------
     # Lightweight shell status
     # ------------------------------------------------------------------
     def _refresh_quick_status(self) -> None:
@@ -378,6 +536,7 @@ class MainWindow(RecipeAlignmentWindow):
         self.quick_fsw_status.setText(f"FSW · {self.fsw_status_label.text()}")
         self.quick_dsox_status.setText(f"DSO-X · {self.dsox_status_label.text()}")
         self.quick_job_status.setText(f"任务 · {self.job_state_label.text()}")
+        self.quick_mode_status.setText(f"模式 · {self.capture_mode_combo.currentText()}")
         root_text = self.output_root_edit.text().strip() or "未设置"
         self.quick_data_root.setText(f"数据 · {root_text}")
         if hasattr(self, "settings_data_root_label"):
@@ -442,6 +601,9 @@ class MainWindow(RecipeAlignmentWindow):
             }
             QLabel#commercialPageDescription, QLabel#commercialHint {
                 color: #667085;
+            }
+            QGroupBox#taskParameterCard {
+                border-color: #cbd5e1;
             }
             QScrollArea#commercialScrollArea {
                 background: transparent;

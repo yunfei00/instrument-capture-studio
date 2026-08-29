@@ -5,7 +5,7 @@ import sys
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
-from instrument_capture_studio.ui.workspace_window import MainWindow
+from instrument_capture_studio.ui.delivery_window import MainWindow
 
 
 _RELEASE_LABEL = "v1.0.0 · Final RC"
@@ -23,7 +23,7 @@ def create_application(argv: list[str] | None = None) -> QApplication:
 
 
 def create_main_window() -> MainWindow:
-    """Create the screenshot-reviewed commercial RC shell."""
+    """Create the delivery-reviewed commercial RC shell."""
     window = MainWindow()
     badge = window.findChild(QLabel, "alphaBadge")
     if badge is not None:

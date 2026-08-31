@@ -5,7 +5,7 @@ import sys
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
-from instrument_capture_studio.ui.long_session_window import MainWindow
+from instrument_capture_studio.ui.large_data_window import MainWindow
 
 
 _RELEASE_LABEL = "v1.0.1"

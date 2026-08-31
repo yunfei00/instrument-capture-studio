@@ -40,7 +40,11 @@ def _read_object(path: Path) -> dict[str, object] | None:
 
 def _recent_paths(paths, limit: int) -> list[Path]:
     candidates: list[tuple[float, Path]] = []
+    seen: set[Path] = set()
     for path in paths:
+        if path in seen:
+            continue
+        seen.add(path)
         try:
             modified = path.stat().st_mtime
         except OSError:
@@ -50,13 +54,20 @@ def _recent_paths(paths, limit: int) -> list[Path]:
     return [path for _, path in candidates[: max(0, limit)]]
 
 
+def _batch_manifest_paths(root: Path):
+    # v1.0.1+: <root>/batches/<batch-id>/batch.json
+    yield from root.glob("batches/*/batch.json")
+    # v1.0.0 compatibility: <root>/batches/YYYY-MM-DD/<batch-id>/batch.json
+    yield from root.glob("batches/*/*/batch.json")
+
+
 def list_recent_batches(root: Path, limit: int = 50) -> tuple[BatchSummary, ...]:
     root = Path(root)
     if not root.exists():
         return ()
 
     summaries: list[BatchSummary] = []
-    manifests = _recent_paths(root.glob("batches/*/*/batch.json"), limit)
+    manifests = _recent_paths(_batch_manifest_paths(root), limit)
     for path in manifests:
         payload = _read_object(path)
         if payload is None:
@@ -87,8 +98,11 @@ def list_recent_jobs(root: Path, limit: int = 100) -> tuple[JobSummary, ...]:
     if not root.exists():
         return ()
 
+    # Standalone v1 jobs live under <root>/<date>/<job>. New batch jobs are
+    # nested under <root>/batches/<batch>/<frequency>/<job>. Using rglob keeps
+    # both layouts browseable without coupling the UI to either schema.
     summaries: list[JobSummary] = []
-    manifests = _recent_paths(root.glob("*/*/job.json"), limit)
+    manifests = _recent_paths(root.rglob("job.json"), limit)
     for path in manifests:
         payload = _read_object(path)
         if payload is None:

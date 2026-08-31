@@ -120,6 +120,12 @@ class MainWindow(DeliveryWindow):
             self._sync_long_session_controls()
             self._refresh_time_estimate()
 
+    def _sync_sweep_mode(self, *_args) -> None:
+        super()._sync_sweep_mode(*_args)
+        if hasattr(self, "auto_pause_checkbox"):
+            self._sync_long_session_controls()
+            self._refresh_time_estimate()
+
     def _update_sweep_summary(self, *_args) -> None:
         super()._update_sweep_summary(*_args)
         if hasattr(self, "capture_time_estimate_label"):

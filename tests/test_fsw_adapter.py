@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from instrument_capture_studio.adapters.fsw import FSWAdapter, FSWConfig
 from instrument_capture_studio.core.models import InstrumentState
 
@@ -54,6 +56,10 @@ class FakeFSWDriver:
     def set_vbw(self, value_hz: float) -> None:
         self.calls.append(("vbw", value_hz))
 
+    def get_sweep_time(self) -> float:
+        self.calls.append(("sweep_time",))
+        return 0.2
+
     def set_trigger_source(self, source: str) -> None:
         self.calls.append(("trigger", source))
 
@@ -92,6 +98,17 @@ class FakeFSWDriver:
             levels=(-80.0, -60.0, -70.0),
             start_hz=100e6,
             stop_hz=200e6,
+        )
+
+
+class ZeroSpanFSWDriver(FakeFSWDriver):
+    @staticmethod
+    def _trace():
+        return SimpleNamespace(
+            frequencies_hz=(700e6, 700e6, 700e6),
+            levels=(-80.0, -60.0, -70.0),
+            start_hz=700e6,
+            stop_hz=700e6,
         )
 
 
@@ -188,6 +205,30 @@ def test_arm_ext_then_wait_read_keeps_trigger_before_arm():
         ("wait_read", 2, 3, 5.0, None),
     ]
     assert result.metadata["trigger_source"] == "EXT"
+
+
+def test_zero_span_uses_sweep_time_as_trace_axis():
+    driver = ZeroSpanFSWDriver()
+    adapter = FSWAdapter(
+        address="TCPIP0::192.168.1.20::inst0::INSTR",
+        driver=driver,
+        config=FSWConfig(trigger_source="IMM"),
+    )
+
+    result = adapter.acquire_spectrum()
+
+    assert result.axis_kind == "time"
+    assert result.time_s == pytest.approx([0.0, 0.1, 0.2])
+    assert result.frequencies_hz == [700e6, 700e6, 700e6]
+    assert result.metadata["zero_span"] is True
+    assert result.metadata["center_frequency_hz"] == 700e6
+    assert result.metadata["span_hz"] == 0.0
+    assert result.metadata["sweep_time_s"] == pytest.approx(0.2)
+    assert driver.calls == [
+        ("trigger", "IMM"),
+        ("acquire", 1, 1, 1, None, None),
+        ("sweep_time",),
+    ]
 
 
 def test_imm_override_does_not_mutate_saved_configuration():

@@ -67,10 +67,6 @@ def load_resumable_batch(path: Path) -> ResumableBatch:
     if completed >= plan.total_captures:
         raise ValueError("batch has no remaining captures")
 
-    # The plan in batch.json is authoritative for sample cursoring, while the
-    # separate configuration snapshot is authoritative for all instrument
-    # parameters. Keeping both is intentional: a resume never depends on the
-    # user's current GUI/QSettings values.
     return ResumableBatch(
         manifest_path=manifest_path,
         batch_id=batch_id,
@@ -82,13 +78,24 @@ def load_resumable_batch(path: Path) -> ResumableBatch:
     )
 
 
+def _manifest_candidates(root: Path):
+    # v1.0.1+ stable long-session layout.
+    yield from root.glob("batches/*/batch.json")
+    # v1.0.0 date-based compatibility layout.
+    yield from root.glob("batches/*/*/batch.json")
+
+
 def list_resumable_batches(root: Path, limit: int = 20) -> tuple[ResumableBatch, ...]:
     root = Path(root).expanduser()
     if not root.exists():
         return ()
 
     candidates: list[tuple[float, Path]] = []
-    for path in root.glob("batches/*/*/batch.json"):
+    seen: set[Path] = set()
+    for path in _manifest_candidates(root):
+        if path in seen:
+            continue
+        seen.add(path)
         try:
             modified = path.stat().st_mtime
         except OSError:
@@ -101,8 +108,6 @@ def list_resumable_batches(root: Path, limit: int = 20) -> tuple[ResumableBatch,
         try:
             batch = load_resumable_batch(path)
         except (OSError, ValueError):
-            # Debug batches created before frozen configuration snapshots are
-            # deliberately ignored. The user confirmed those data are disposable.
             continue
         results.append(batch)
         if len(results) >= max(0, limit):

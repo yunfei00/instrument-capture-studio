@@ -10,6 +10,7 @@ class JobDataLayout:
     root: Path
     job_id: str
     capture_date: date
+    use_date_directory: bool = True
 
     @classmethod
     def build(
@@ -18,6 +19,7 @@ class JobDataLayout:
         job_id: str,
         *,
         capture_date: date | None = None,
+        use_date_directory: bool = True,
     ) -> "JobDataLayout":
         normalized_job_id = job_id.strip()
         if not normalized_job_id:
@@ -28,10 +30,13 @@ class JobDataLayout:
             root=Path(root),
             job_id=normalized_job_id,
             capture_date=capture_date or date.today(),
+            use_date_directory=bool(use_date_directory),
         )
 
     @property
     def date_directory(self) -> Path:
+        if not self.use_date_directory:
+            return self.root
         return self.root / self.capture_date.isoformat()
 
     @property

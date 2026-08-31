@@ -29,12 +29,23 @@ class WaveformResult:
 
 @dataclass
 class SpectrumResult:
-    """频谱分析仪 Trace 采集结果。"""
+    """频谱分析仪 Trace 采集结果。
+
+    普通扫频使用 ``frequencies_hz`` 作为横轴。FSW Zero Span 时频率不再
+    是 Trace 横轴，而是测量条件；此时 ``time_s`` 保存 0..Sweep Time 的
+    时间轴，同时 ``frequencies_hz`` 仍可保存每点对应的中心频率以兼容旧
+    调用方。
+    """
 
     frequencies_hz: list[float]
     amplitudes_dbm: list[float]
     metadata: dict[str, Any] = field(default_factory=dict)
+    time_s: list[float] | None = None
 
     @property
     def points(self) -> int:
         return len(self.amplitudes_dbm)
+
+    @property
+    def axis_kind(self) -> str:
+        return "time" if self.time_s is not None else "frequency"

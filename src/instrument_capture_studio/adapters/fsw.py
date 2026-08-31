@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, replace
+from math import isclose
 from typing import Any, Protocol
 
 from instrument_capture_studio.adapters.driver_guard import DriverErrorGuard
@@ -26,6 +27,7 @@ class FSWDriverProtocol(Protocol):
     def set_span(self, value_hz: float) -> None: ...
     def set_rbw(self, value_hz: float) -> None: ...
     def set_vbw(self, value_hz: float) -> None: ...
+    def get_sweep_time(self) -> float: ...
     def set_trigger_source(self, source: str) -> None: ...
 
     def arm_trace_ascii(self, *, channel: int = 1) -> None: ...
@@ -228,27 +230,33 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
         trigger_source: str | None,
     ) -> SpectrumResult:
         points = len(levels)
+        zero_span = self._is_zero_span(start_hz, stop_hz)
+        time_s = self._zero_span_time_axis(points) if zero_span else None
+
         if points <= 1:
             frequencies_hz = [start_hz] if points == 1 else []
+        elif zero_span:
+            frequencies_hz = [start_hz for _ in range(points)]
         else:
             increment_hz = (stop_hz - start_hz) / (points - 1)
             frequencies_hz = [
                 start_hz + index * increment_hz
                 for index in range(points)
             ]
+
         config = self._config
+        metadata = self._trace_metadata(
+            start_hz=start_hz,
+            stop_hz=stop_hz,
+            trigger_source=trigger_source or config.trigger_source,
+            zero_span=zero_span,
+            time_s=time_s,
+        )
         return SpectrumResult(
             frequencies_hz=frequencies_hz,
             amplitudes_dbm=list(levels),
-            metadata={
-                "start_hz": start_hz,
-                "stop_hz": stop_hz,
-                "channel": config.channel,
-                "window": config.window,
-                "trace": config.trace,
-                "trigger_source": trigger_source or config.trigger_source,
-                "transfer_format": "ASCII",
-            },
+            metadata=metadata,
+            time_s=time_s,
         )
 
     def _trace_to_result(
@@ -256,21 +264,75 @@ class FSWAdapter(SpectrumAnalyzerAdapter):
         trace: Any,
         trigger_source: str | None,
     ) -> SpectrumResult:
+        start_hz = float(trace.start_hz)
+        stop_hz = float(trace.stop_hz)
+        levels = list(trace.levels)
+        zero_span = self._is_zero_span(start_hz, stop_hz)
+        time_s = self._zero_span_time_axis(len(levels)) if zero_span else None
+
+        if zero_span:
+            frequencies_hz = [start_hz for _ in levels]
+        else:
+            frequencies_hz = list(trace.frequencies_hz)
+
         config = self._config
         effective_trigger = trigger_source or config.trigger_source
-        return SpectrumResult(
-            frequencies_hz=list(trace.frequencies_hz),
-            amplitudes_dbm=list(trace.levels),
-            metadata={
-                "start_hz": trace.start_hz,
-                "stop_hz": trace.stop_hz,
-                "channel": config.channel,
-                "window": config.window,
-                "trace": config.trace,
-                "trigger_source": effective_trigger,
-                "transfer_format": "ASCII",
-            },
+        metadata = self._trace_metadata(
+            start_hz=start_hz,
+            stop_hz=stop_hz,
+            trigger_source=effective_trigger,
+            zero_span=zero_span,
+            time_s=time_s,
         )
+        return SpectrumResult(
+            frequencies_hz=frequencies_hz,
+            amplitudes_dbm=levels,
+            metadata=metadata,
+            time_s=time_s,
+        )
+
+    @staticmethod
+    def _is_zero_span(start_hz: float, stop_hz: float) -> bool:
+        tolerance_hz = max(1e-6, max(abs(start_hz), abs(stop_hz)) * 1e-12)
+        return isclose(start_hz, stop_hz, rel_tol=0.0, abs_tol=tolerance_hz)
+
+    def _zero_span_time_axis(self, points: int) -> list[float]:
+        if points <= 0:
+            return []
+        sweep_time_s = float(self._driver.get_sweep_time())
+        if sweep_time_s <= 0:
+            raise ValueError(f"FSW returned invalid zero-span Sweep Time: {sweep_time_s}")
+        if points == 1:
+            return [0.0]
+        increment_s = sweep_time_s / (points - 1)
+        return [index * increment_s for index in range(points)]
+
+    def _trace_metadata(
+        self,
+        *,
+        start_hz: float,
+        stop_hz: float,
+        trigger_source: str | None,
+        zero_span: bool,
+        time_s: list[float] | None,
+    ) -> dict[str, object]:
+        config = self._config
+        metadata: dict[str, object] = {
+            "start_hz": start_hz,
+            "stop_hz": stop_hz,
+            "center_frequency_hz": (start_hz + stop_hz) / 2.0,
+            "span_hz": stop_hz - start_hz,
+            "axis_kind": "time" if zero_span else "frequency",
+            "channel": config.channel,
+            "window": config.window,
+            "trace": config.trace,
+            "trigger_source": trigger_source,
+            "transfer_format": "ASCII",
+        }
+        if zero_span and time_s is not None:
+            metadata["sweep_time_s"] = time_s[-1] if time_s else 0.0
+            metadata["zero_span"] = True
+        return metadata
 
     def _apply_configuration(
         self,

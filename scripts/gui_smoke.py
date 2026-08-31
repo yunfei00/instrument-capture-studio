@@ -10,7 +10,7 @@ def main() -> None:
     window = create_main_window()
 
     assert window.windowTitle() == "Instrument Capture Studio"
-    assert type(window).__module__.endswith("long_session_window")
+    assert type(window).__module__.endswith("large_data_window")
     assert window.safe_close_pending is False
     assert window.connection_tests_active == 0
 
@@ -46,6 +46,13 @@ def main() -> None:
     assert window.auto_pause_minutes_spin.value() == 55
     assert hasattr(window, "capture_time_estimate_label")
     assert hasattr(window, "capture_runtime_label")
+
+    assert hasattr(window, "data_search_edit")
+    assert window.data_search_edit.placeholderText()
+    assert hasattr(window, "data_status_filter")
+    assert window.data_status_filter.count() == 3
+    assert window.data_status_filter.itemText(0) == "全部状态"
+    assert hasattr(window, "data_filter_refresh_button")
 
     assert hasattr(window, "fsw_workspace_hint")
     assert hasattr(window, "dsox_workspace_hint")
@@ -113,7 +120,7 @@ def main() -> None:
     window._controller.shutdown()
     window.deleteLater()
     app.processEvents()
-    print("Instrument Capture Studio v1.0.1 long-session GUI smoke test PASS")
+    print("Instrument Capture Studio v1.0.1 large-data GUI smoke test PASS")
 
 
 if __name__ == "__main__":

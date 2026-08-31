@@ -10,12 +10,24 @@ from instrument_capture_studio.workflows.context import CaptureContext
 def _spectrum_summary(spectrum: SpectrumResult | None) -> dict[str, Any] | None:
     if spectrum is None:
         return None
-    return {
+
+    frequencies = spectrum.frequencies_hz
+    summary: dict[str, Any] = {
         "points": spectrum.points,
-        "start_frequency_hz": spectrum.frequencies_hz[0] if spectrum.points else None,
-        "stop_frequency_hz": spectrum.frequencies_hz[-1] if spectrum.points else None,
+        "axis_kind": spectrum.axis_kind,
+        "start_frequency_hz": frequencies[0] if frequencies else None,
+        "stop_frequency_hz": frequencies[-1] if frequencies else None,
         "metadata": spectrum.metadata,
     }
+    if spectrum.time_s is not None:
+        summary["start_time_s"] = spectrum.time_s[0] if spectrum.time_s else None
+        summary["stop_time_s"] = spectrum.time_s[-1] if spectrum.time_s else None
+        summary["center_frequency_hz"] = spectrum.metadata.get(
+            "center_frequency_hz"
+        )
+        summary["span_hz"] = spectrum.metadata.get("span_hz", 0.0)
+        summary["sweep_time_s"] = spectrum.metadata.get("sweep_time_s")
+    return summary
 
 
 def _waveform_summary(waveform: WaveformResult | None) -> dict[str, Any] | None:

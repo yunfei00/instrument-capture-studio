@@ -86,14 +86,20 @@ def batch_configuration_path(output_root: Path, batch_id: str) -> Path:
 
 
 def output_root_from_manifest(manifest_path: Path) -> Path:
-    """Return ``<root>`` from ``<root>/batches/date/id/batch.json``."""
+    """Return the capture root for both new and legacy Batch layouts.
+
+    Supported layouts:
+    - v1.0.1+: ``<root>/batches/<batch-id>/batch.json``
+    - v1.0.0:  ``<root>/batches/YYYY-MM-DD/<batch-id>/batch.json``
+    """
     path = Path(manifest_path).expanduser().resolve()
-    try:
-        if path.name != "batch.json" or path.parent.parent.parent.name != "batches":
-            raise ValueError
-        return path.parents[3]
-    except (IndexError, ValueError) as exc:
-        raise ValueError(f"unsupported Batch manifest location: {path}") from exc
+    if path.name != "batch.json":
+        raise ValueError(f"unsupported Batch manifest location: {path}")
+
+    for parent in path.parents:
+        if parent.name == "batches":
+            return parent.parent
+    raise ValueError(f"unsupported Batch manifest location: {path}")
 
 
 def configuration_path_for_manifest(manifest_path: Path) -> Path:

@@ -40,6 +40,11 @@ class WindowPreferences:
         "dsox/waveform_channel": "waveform_channel_spin",
         "sweep/captures_per_frequency": "sweep_capture_count_spin",
         "continuous/captures": "repeat_capture_count_spin",
+        "long_session/auto_pause_minutes": "auto_pause_minutes_spin",
+    }
+
+    _CHECKBOXES = {
+        "long_session/auto_pause_enabled": "auto_pause_checkbox",
     }
 
     def __init__(self, settings: QSettings | None = None) -> None:
@@ -59,6 +64,9 @@ class WindowPreferences:
         for key, attribute in self._SPINS.items():
             if hasattr(window, attribute):
                 values[key] = getattr(window, attribute).value()
+        for key, attribute in self._CHECKBOXES.items():
+            if hasattr(window, attribute):
+                values[key] = getattr(window, attribute).isChecked()
         return values
 
     def apply(self, window, values: dict[str, object]) -> None:
@@ -81,10 +89,24 @@ class WindowPreferences:
                 getattr(window, attribute).setValue(int(values[key]))
             except (TypeError, ValueError):
                 continue
+        for key, attribute in self._CHECKBOXES.items():
+            if key not in values or not hasattr(window, attribute):
+                continue
+            raw = values[key]
+            if isinstance(raw, str):
+                checked = raw.strip().lower() in {"1", "true", "yes", "on"}
+            else:
+                checked = bool(raw)
+            getattr(window, attribute).setChecked(checked)
 
     def restore(self, window) -> None:
         values: dict[str, object] = {}
-        for key in (*self._LINE_EDITS, *self._COMBOS, *self._SPINS):
+        for key in (
+            *self._LINE_EDITS,
+            *self._COMBOS,
+            *self._SPINS,
+            *self._CHECKBOXES,
+        ):
             if self._settings.contains(key):
                 values[key] = self._settings.value(key)
         self.apply(window, values)

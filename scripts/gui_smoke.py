@@ -10,7 +10,7 @@ def main() -> None:
     window = create_main_window()
 
     assert window.windowTitle() == "Instrument Capture Studio"
-    assert type(window).__module__.endswith("large_data_window")
+    assert type(window).__module__.endswith("review_window")
     assert window.safe_close_pending is False
     assert window.connection_tests_active == 0
 
@@ -53,6 +53,8 @@ def main() -> None:
     assert window.data_status_filter.count() == 3
     assert window.data_status_filter.itemText(0) == "全部状态"
     assert hasattr(window, "data_filter_refresh_button")
+    assert hasattr(window, "manual_review_button")
+    assert window.manual_review_button.text() == "人工筛选"
 
     assert hasattr(window, "fsw_workspace_hint")
     assert hasattr(window, "dsox_workspace_hint")
@@ -114,13 +116,13 @@ def main() -> None:
     assert "连续" in window.task_summary_frequency.text()
 
     badge = window.findChild(QLabel, "alphaBadge")
-    assert badge is not None and badge.text() == "v1.0.1"
+    assert badge is not None and badge.text() == "v1.0.2"
     assert badge.maximumWidth() == 118
 
     window._controller.shutdown()
     window.deleteLater()
     app.processEvents()
-    print("Instrument Capture Studio v1.0.1 large-data GUI smoke test PASS")
+    print("Instrument Capture Studio v1.0.2 manual-review GUI smoke test PASS")
 
 
 if __name__ == "__main__":

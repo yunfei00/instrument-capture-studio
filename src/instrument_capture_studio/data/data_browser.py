@@ -53,7 +53,7 @@ class BatchJobSummary:
 
 @dataclass(frozen=True)
 class BatchFrequencySummary:
-    """All Job records belonging to one planned frequency."""
+    """All visible Job records belonging to one planned frequency."""
 
     frequency_index: int
     frequency_hz: float
@@ -135,11 +135,13 @@ def list_recent_batches(root: Path, limit: int = 50) -> tuple[BatchSummary, ...]
 def list_batch_frequency_groups(
     manifest_path: Path,
 ) -> tuple[BatchFrequencySummary, ...]:
-    """Read one batch.json and group every recorded Job by frequency.
+    """Read one batch.json and group non-rejected Jobs by frequency.
 
     The data page uses this index instead of recursively scanning thousands of
     Job folders. Planned frequencies with no completed Job are included so a
-    running Batch still shows its full acquisition plan.
+    running Batch still shows its full acquisition plan. Samples rejected by the
+    post-acquisition human review remain in batch.json for audit/resume semantics
+    but are intentionally hidden from normal dataset browsing.
     """
 
     manifest_path = Path(manifest_path)
@@ -175,6 +177,8 @@ def list_batch_frequency_groups(
     if isinstance(raw_jobs, list):
         for raw in raw_jobs:
             if not isinstance(raw, dict):
+                continue
+            if str(raw.get("review_status") or "").lower() == "rejected":
                 continue
             frequency_index = _optional_int(raw.get("frequency_index"))
             frequency_hz = _optional_float(raw.get("frequency_hz"))

@@ -54,7 +54,9 @@ def main() -> None:
     assert window.data_status_filter.itemText(0) == "全部状态"
     assert hasattr(window, "data_filter_refresh_button")
     assert hasattr(window, "manual_review_button")
-    assert window.manual_review_button.text() == "人工筛选"
+    assert window.manual_review_button.text() == "人工筛选当前 Batch"
+    assert hasattr(window, "directory_review_button")
+    assert window.directory_review_button.text() == "选择目录人工筛选"
 
     assert hasattr(window, "fsw_workspace_hint")
     assert hasattr(window, "dsox_workspace_hint")
@@ -116,13 +118,13 @@ def main() -> None:
     assert "连续" in window.task_summary_frequency.text()
 
     badge = window.findChild(QLabel, "alphaBadge")
-    assert badge is not None and badge.text() == "v1.0.2"
+    assert badge is not None and badge.text() == "v1.1.0"
     assert badge.maximumWidth() == 118
 
     window._controller.shutdown()
     window.deleteLater()
     app.processEvents()
-    print("Instrument Capture Studio v1.0.2 manual-review GUI smoke test PASS")
+    print("Instrument Capture Studio v1.1.0 portable-review GUI smoke test PASS")
 
 
 if __name__ == "__main__":

@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QLabel
 from instrument_capture_studio.ui.review_window import MainWindow
 
 
-_RELEASE_LABEL = "v1.0.2"
+_RELEASE_LABEL = "v1.1.0"
 
 
 def create_application(argv: list[str] | None = None) -> QApplication:

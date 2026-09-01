@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeyEvent
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
     QGridLayout,
@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
 from instrument_capture_studio.data.batch_manifest import load_batch_manifest
 from instrument_capture_studio.data.manual_review import (
     FORMAL_REVIEW_TRACES,
-    ReviewSample,
     list_review_samples,
     reject_review_sample,
 )
@@ -74,6 +73,7 @@ class ManualReviewDialog(QDialog):
         self.setModal(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._build_ui()
+        self._install_keyboard_shortcuts()
         self._show_current_sample()
 
     def _build_ui(self) -> None:
@@ -119,6 +119,8 @@ class ManualReviewDialog(QDialog):
             title.setStyleSheet("font-size: 14px; font-weight: 700;")
             viewer = TraceChartWidget(panel)
             viewer.chart_view.setMinimumHeight(230)
+            viewer.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            viewer.chart_view.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             panel_layout.addWidget(title)
             panel_layout.addWidget(viewer, 1)
             self._viewers[filename] = viewer
@@ -136,6 +138,8 @@ class ManualReviewDialog(QDialog):
         self.previous_button = QPushButton("← 上一组")
         self.next_button = QPushButton("下一组 →")
         self.delete_button = QPushButton("Del 删除当前样本")
+        for button in (self.previous_button, self.next_button, self.delete_button):
+            button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.delete_button.setObjectName("reviewDeleteButton")
         self.delete_button.setEnabled(self._can_delete)
         self.delete_button.setStyleSheet(
@@ -154,32 +158,29 @@ class ManualReviewDialog(QDialog):
         if not self._can_delete:
             self.notice_label.setText("当前 Batch 仍在运行/暂停，已禁用删除")
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        key = event.key()
-        if key in {Qt.Key.Key_Right, Qt.Key.Key_Down}:
-            self._show_next()
-            event.accept()
-            return
-        if key in {Qt.Key.Key_Left, Qt.Key.Key_Up}:
-            self._show_previous()
-            event.accept()
-            return
-        if key == Qt.Key.Key_Delete:
-            self._delete_current_without_confirmation()
-            event.accept()
-            return
-        if key == Qt.Key.Key_F11:
-            if self.isFullScreen():
-                self.showNormal()
-            else:
-                self.showFullScreen()
-            event.accept()
-            return
-        if key == Qt.Key.Key_Escape:
-            self.accept()
-            event.accept()
-            return
-        super().keyPressEvent(event)
+    def _install_keyboard_shortcuts(self) -> None:
+        """Use window shortcuts so chart/button focus never steals review keys."""
+        self._review_shortcuts: list[QShortcut] = []
+
+        def bind(key, callback) -> None:
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(callback)
+            self._review_shortcuts.append(shortcut)
+
+        bind(Qt.Key.Key_Right, self._show_next)
+        bind(Qt.Key.Key_Down, self._show_next)
+        bind(Qt.Key.Key_Left, self._show_previous)
+        bind(Qt.Key.Key_Up, self._show_previous)
+        bind(Qt.Key.Key_Delete, self._delete_current_without_confirmation)
+        bind(Qt.Key.Key_F11, self._toggle_full_screen)
+        bind(Qt.Key.Key_Escape, self.accept)
+
+    def _toggle_full_screen(self) -> None:
+        if self.isFullScreen():
+            self.showNormal()
+        else:
+            self.showFullScreen()
 
     def _show_previous(self) -> None:
         if not self._samples:
@@ -359,8 +360,6 @@ class MainWindow(LargeDataWindow):
         if manifest_path is None or not manifest_path.is_file():
             return None, None, None
 
-        # Recent-Job shortcuts do not carry the frequency tree node. Resolve the
-        # selected Job back to its manifest record so review can stay on that frequency.
         if frequency_index is None and job_id:
             manifest = load_batch_manifest(manifest_path)
             jobs = manifest.get("jobs")

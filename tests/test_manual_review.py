@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from instrument_capture_studio.data.batch_manifest import write_batch_manifest
+from instrument_capture_studio.data.data_browser import list_batch_frequency_groups
 from instrument_capture_studio.data.manual_review import (
     list_review_samples,
     reject_review_sample,
@@ -70,6 +71,9 @@ def test_reject_review_sample_deletes_whole_job_and_keeps_audit(tmp_path: Path):
     assert not job_dir.exists()
     assert result.rejected_count == 1
     assert list_review_samples(manifest_path) == ()
+    groups = list_batch_frequency_groups(manifest_path)
+    assert len(groups) == 1
+    assert groups[0].jobs == ()
 
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     record = payload["jobs"][0]

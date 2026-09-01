@@ -8,9 +8,11 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QDialog,
+    QFileDialog,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -21,6 +23,12 @@ from instrument_capture_studio.data.manual_review import (
     FORMAL_REVIEW_TRACES,
     list_review_samples,
     reject_review_sample,
+)
+from instrument_capture_studio.data.portable_review import (
+    PortableReviewScan,
+    reject_portable_review_sample,
+    save_portable_review_position,
+    scan_portable_review_samples,
 )
 from instrument_capture_studio.ui.large_data_window import (
     MainWindow as LargeDataWindow,
@@ -75,6 +83,10 @@ class ManualReviewDialog(QDialog):
         self._build_ui()
         self._install_keyboard_shortcuts()
         self._show_current_sample()
+
+    @property
+    def sample_count(self) -> int:
+        return len(self._samples)
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -215,8 +227,6 @@ class ManualReviewDialog(QDialog):
             f"已删除 {self._rejected_count}"
         )
         self.setWindowTitle(f"人工筛选 · {sample.job_id}")
-        if self._can_delete:
-            self.notice_label.setText("")
 
         for filename, viewer in self._viewers.items():
             path = sample.directory / filename
@@ -251,8 +261,8 @@ class ManualReviewDialog(QDialog):
             self._index = min(self._index, len(self._samples) - 1)
         else:
             self._index = 0
-        self.notice_label.setText(f"已删除：{sample.job_id}")
         self._show_current_sample()
+        self.notice_label.setText(f"已删除：{sample.job_id}")
 
     def _batch_allows_review_delete(self) -> bool:
         manifest = load_batch_manifest(self.manifest_path)
@@ -277,8 +287,110 @@ class ManualReviewDialog(QDialog):
         )
 
 
+class DirectoryReviewDialog(ManualReviewDialog):
+    """Review copied/moved datasets using only the four final NPZ files."""
+
+    def __init__(
+        self,
+        data_root: Path,
+        *,
+        scan: PortableReviewScan | None = None,
+        parent=None,
+    ) -> None:
+        QDialog.__init__(self, parent)
+        self.data_root = Path(data_root).expanduser().resolve()
+        self._scan = scan or scan_portable_review_samples(self.data_root)
+        self._samples = list(self._scan.samples)
+        self._index = min(self._scan.resume_index, max(0, len(self._samples) - 1))
+        self._rejected_count = self._scan.rejected_count
+        self._can_delete = True
+        self.setWindowTitle("目录人工筛选 · Instrument Capture Studio")
+        self.setModal(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self._build_ui()
+        self._install_keyboard_shortcuts()
+        if self._scan.incomplete_directories:
+            self.notice_label.setText(
+                f"已跳过 {self._scan.incomplete_directories} 个不完整样本目录"
+            )
+        self._show_current_sample()
+
+    def _show_current_sample(self) -> None:
+        if not self._samples:
+            self.position_label.setText(
+                f"{self.data_root.name} · 没有可筛选的完整四图样本 · 已删除 {self._rejected_count}"
+            )
+            for filename, viewer in self._viewers.items():
+                viewer.clear(f"{_TRACE_NAMES[filename]} · 无数据")
+            self.previous_button.setEnabled(False)
+            self.next_button.setEnabled(False)
+            self.delete_button.setEnabled(False)
+            save_portable_review_position(self.data_root, None, position=0, total=0)
+            return
+
+        self._index = min(max(self._index, 0), len(self._samples) - 1)
+        sample = self._samples[self._index]
+        frequency = (
+            f"{sample.frequency_hz / 1e6:g} MHz"
+            if sample.frequency_hz is not None
+            else "频率未知"
+        )
+        capture = (
+            f"样本 n{sample.capture_index:04d}"
+            if sample.capture_index is not None
+            else sample.directory.name
+        )
+        self.position_label.setText(
+            f"{frequency}   ·   {self._index + 1}/{len(self._samples)}   ·   "
+            f"{capture}   ·   已删除 {self._rejected_count}"
+        )
+        self.setWindowTitle(f"目录人工筛选 · {sample.relative_path}")
+
+        for filename, viewer in self._viewers.items():
+            path = sample.directory / filename
+            if not path.is_file():
+                viewer.clear(f"{_TRACE_NAMES[filename]} · 文件缺失：{filename}")
+                continue
+            try:
+                viewer.load_path(path)
+            except Exception as exc:
+                viewer.clear(
+                    f"{_TRACE_NAMES[filename]} · 文件异常：{type(exc).__name__}: {exc}"
+                )
+
+        self.previous_button.setEnabled(self._index > 0)
+        self.next_button.setEnabled(self._index < len(self._samples) - 1)
+        self.delete_button.setEnabled(True)
+        save_portable_review_position(
+            self.data_root,
+            sample,
+            position=self._index + 1,
+            total=len(self._samples),
+        )
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def _delete_current_without_confirmation(self) -> None:
+        if not self._samples:
+            return
+        sample = self._samples[self._index]
+        try:
+            result = reject_portable_review_sample(self.data_root, sample)
+        except Exception as exc:
+            self.notice_label.setText(f"删除失败：{type(exc).__name__}: {exc}")
+            return
+
+        self._rejected_count = result.rejected_count
+        self._samples.pop(self._index)
+        if self._samples:
+            self._index = min(self._index, len(self._samples) - 1)
+        else:
+            self._index = 0
+        self._show_current_sample()
+        self.notice_label.setText(f"已删除：{sample.relative_path}")
+
+
 class MainWindow(LargeDataWindow):
-    """Main workspace with a dedicated full-screen manual screening module."""
+    """Main workspace with Batch-aware and portable directory screening."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -287,14 +399,21 @@ class MainWindow(LargeDataWindow):
     def _install_manual_review_action(self) -> None:
         bar = self.findChild(QWidget, "largeDataFilterBar")
         layout = bar.layout() if bar is not None else None
-        self.manual_review_button = QPushButton("人工筛选", bar or self)
+        self.manual_review_button = QPushButton("人工筛选当前 Batch", bar or self)
         self.manual_review_button.setObjectName("manualReviewButton")
         self.manual_review_button.setToolTip(
-            "全屏显示每个样本的四条正式曲线；方向键切换，Del 无确认删除整个样本目录。"
+            "按当前 Batch/频率全屏筛选四条正式曲线；Del 无确认删除整个样本目录。"
+        )
+        self.directory_review_button = QPushButton("选择目录人工筛选", bar or self)
+        self.directory_review_button.setObjectName("directoryReviewButton")
+        self.directory_review_button.setToolTip(
+            "处理已经复制或重新整理的数据：只要求每个样本目录保留四个正式 NPZ，不依赖 Batch/Job/metadata。"
         )
         if layout is not None:
             layout.addWidget(self.manual_review_button)
+            layout.addWidget(self.directory_review_button)
         self.manual_review_button.clicked.connect(self._open_manual_review)
+        self.directory_review_button.clicked.connect(self._open_directory_review)
         self.data_tree.itemSelectionChanged.connect(self._refresh_manual_review_action)
         self._refresh_manual_review_action()
 
@@ -310,6 +429,8 @@ class MainWindow(LargeDataWindow):
         self.manual_review_button.setEnabled(
             not self._capture_busy and manifest_path is not None
         )
+        if hasattr(self, "directory_review_button"):
+            self.directory_review_button.setEnabled(not self._capture_busy)
 
     def _open_manual_review(self) -> None:
         manifest_path, frequency_index, job_id = self._selected_review_context()
@@ -321,6 +442,42 @@ class MainWindow(LargeDataWindow):
             start_job_id=job_id,
             parent=self,
         )
+        dialog.showFullScreen()
+        dialog.exec()
+        self._refresh_data_tree()
+
+    def _open_directory_review(self) -> None:
+        start = Path(self.output_root_edit.text()).expanduser()
+        if not start.is_dir():
+            start = Path.home()
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "选择需要人工筛选的数据根目录",
+            str(start),
+        )
+        if not selected:
+            return
+
+        root = Path(selected).expanduser().resolve()
+        try:
+            scan = scan_portable_review_samples(root)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "目录人工筛选",
+                f"无法扫描所选目录：\n{type(exc).__name__}: {exc}",
+            )
+            return
+        if not scan.samples:
+            QMessageBox.information(
+                self,
+                "目录人工筛选",
+                "没有发现完整样本。\n\n每个样本目录至少需要同时包含：\n"
+                + "\n".join(FORMAL_REVIEW_TRACES),
+            )
+            return
+
+        dialog = DirectoryReviewDialog(root, scan=scan, parent=self)
         dialog.showFullScreen()
         dialog.exec()
         self._refresh_data_tree()

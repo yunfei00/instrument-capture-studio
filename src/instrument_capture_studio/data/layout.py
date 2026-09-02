@@ -101,6 +101,14 @@ class JobDataLayout:
     def spectrum_freerun_npz_path(self) -> Path:
         return self.job_directory / "spectrum_freerun.npz"
 
+    @property
+    def spectrum_video_csv_path(self) -> Path:
+        return self.job_directory / "spectrum_video.csv"
+
+    @property
+    def spectrum_video_npz_path(self) -> Path:
+        return self.job_directory / "spectrum_video.npz"
+
     # Standalone recipes retained in v1.
     @property
     def spectrum_imm_csv_path(self) -> Path:

@@ -16,6 +16,51 @@ from instrument_capture_studio.workflows.result_sink import (
 )
 
 
+def _copy_paired_runtime_parameters(
+    result: CaptureResult,
+    workflow: PairedCaptureWorkflow,
+    initial_metadata: dict[str, object],
+) -> None:
+    """Expose measurement conditions in job.json as well as metadata.json."""
+
+    context_metadata = workflow.context.metadata
+    result.metadata["fsw_sweep_time_s"] = context_metadata.get("fsw_sweep_time_s")
+    timing_windows = context_metadata.get("timing_windows")
+    if isinstance(timing_windows, dict):
+        result.metadata["timing_windows"] = deepcopy(timing_windows)
+
+    instruments = initial_metadata.get("instruments")
+    spectrum_analyzer = (
+        instruments.get("spectrum_analyzer")
+        if isinstance(instruments, dict)
+        else None
+    )
+    frontend = (
+        spectrum_analyzer.get("frontend")
+        if isinstance(spectrum_analyzer, dict)
+        else None
+    )
+    if isinstance(frontend, dict):
+        result.metadata["fsw_frontend"] = deepcopy(frontend)
+
+    result.metadata["acquisition_parameters"] = {
+        "fsw": {
+            "sweep_time_s": context_metadata.get("fsw_sweep_time_s"),
+            "frontend": deepcopy(frontend) if isinstance(frontend, dict) else None,
+        },
+        "dsox": {
+            "sync": deepcopy(timing_windows.get("sync"))
+            if isinstance(timing_windows, dict)
+            and isinstance(timing_windows.get("sync"), dict)
+            else None,
+            "followup": deepcopy(timing_windows.get("followup"))
+            if isinstance(timing_windows, dict)
+            and isinstance(timing_windows.get("followup"), dict)
+            else None,
+        },
+    }
+
+
 def run_connected_paired_capture(
     spectrum_analyzer,
     oscilloscope,
@@ -68,6 +113,7 @@ def run_connected_paired_capture(
             progress_callback=progress_callback,
         )
         result = workflow.run(job_id)
+        _copy_paired_runtime_parameters(result, workflow, initial_metadata)
         return result
     except Exception as exc:
         if result is None:

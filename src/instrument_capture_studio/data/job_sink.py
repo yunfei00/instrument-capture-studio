@@ -166,7 +166,7 @@ class JobDirectoryResultSink:
                 (str(layout.waveform_csv_path), str(layout.waveform_npz_path))
             )
 
-        # Final paired recipe artifacts.
+        # Final paired recipe artifacts. The original four names are unchanged.
         if context.spectrum_ext is not None:
             write_spectrum_csv(layout.spectrum_ext_csv_path, context.spectrum_ext)
             write_spectrum_npz(layout.spectrum_ext_npz_path, context.spectrum_ext)
@@ -207,6 +207,21 @@ class JobDirectoryResultSink:
                 (
                     str(layout.spectrum_freerun_csv_path),
                     str(layout.spectrum_freerun_npz_path),
+                )
+            )
+        if context.spectrum_video is not None:
+            write_spectrum_csv(
+                layout.spectrum_video_csv_path,
+                context.spectrum_video,
+            )
+            write_spectrum_npz(
+                layout.spectrum_video_npz_path,
+                context.spectrum_video,
+            )
+            output_files.extend(
+                (
+                    str(layout.spectrum_video_csv_path),
+                    str(layout.spectrum_video_npz_path),
                 )
             )
 

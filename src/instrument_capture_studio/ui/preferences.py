@@ -13,6 +13,7 @@ class WindowPreferences:
         "fsw/rbw_hz": "rbw_hz_edit",
         "fsw/vbw_hz": "vbw_hz_edit",
         "fsw/step_timeout_s": "fsw_timeout_edit",
+        "fsw/video_trigger_level_pct": "video_trigger_level_edit",
         "dsox/resource": "dsox_resource_edit",
         "dsox/delay_source1": "delay_source1_edit",
         "dsox/delay_source2": "delay_source2_edit",
@@ -46,6 +47,7 @@ class WindowPreferences:
     _CHECKBOXES = {
         "long_session/auto_pause_enabled": "auto_pause_checkbox",
         "dsox/snapshot_all_enabled": "snapshot_all_checkbox",
+        "fsw/video_trigger_enabled": "video_trigger_checkbox",
     }
 
     def __init__(self, settings: QSettings | None = None) -> None:

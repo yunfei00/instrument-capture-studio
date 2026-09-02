@@ -45,6 +45,7 @@ class WindowPreferences:
 
     _CHECKBOXES = {
         "long_session/auto_pause_enabled": "auto_pause_checkbox",
+        "dsox/snapshot_all_enabled": "snapshot_all_checkbox",
     }
 
     def __init__(self, settings: QSettings | None = None) -> None:

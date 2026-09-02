@@ -49,6 +49,9 @@ class FormalDSOXConfig(DSOX3034AConfig):
 class FormalFSWAdapter(FSWAdapter):
     """FSW primitives that preserve setup and perform one sweep per result."""
 
+    video_trigger_enabled: bool = False
+    video_trigger_level_pct: float = 45.9
+
     def read_sweep_time_s(self) -> float:
         value = float(self._driver.get_sweep_time())
         if value <= 0:
@@ -127,6 +130,125 @@ class FormalFSWAdapter(FSWAdapter):
         result = self._trace_to_result(trace, "IMM")
         result.metadata["acquisition_mode"] = "single"
         return result
+
+    def acquire_video_current_setup(
+        self,
+        *,
+        sweep_time_s: float,
+        timeout_s: float | None = None,
+        cancel_check: CancelCheck | None = None,
+    ):
+        """Append one VIDEO-triggered FSW Single trace and restore trigger state.
+
+        ``-SweepTime/2`` is intentionally implemented here in the commercial
+        recipe layer rather than in instrument-automation-platform. The baseline
+        exposes generic VIDEO level and Trigger Offset controls; this application
+        chooses the offset policy required by the customer's acquisition recipe.
+        """
+        sweep_time = float(sweep_time_s)
+        if sweep_time <= 0:
+            raise ValueError("sweep_time_s must be greater than 0")
+
+        level_pct = float(self.video_trigger_level_pct)
+        if not 0.0 <= level_pct <= 100.0:
+            raise ValueError("VIDEO trigger level must be between 0 and 100 percent")
+        requested_offset_s = -sweep_time / 2.0
+
+        # Keep the platform dependency local so commercial package imports remain
+        # lightweight and the instrument semantics have a single source of truth.
+        from instrument_drivers.rohde_schwarz.fsw import (
+            configure_video_trigger,
+            get_trigger_offset_s,
+            get_video_trigger_level_pct,
+            set_trigger_offset_s,
+            set_video_trigger_level_pct,
+        )
+
+        original_source = str(self._driver.get_trigger_source()).strip()
+        original_offset_s = float(
+            self._driver.call_driver_helper(
+                "get_trigger_offset_s",
+                get_trigger_offset_s,
+            )
+        )
+        original_continuous = bool(
+            self._driver.get_continuous(self._config.channel)
+        )
+        original_video_level_pct: float | None = None
+        result = None
+        restore_errors: list[dict[str, str]] = []
+
+        try:
+            # Select VID first so the instrument exposes the VIDEO-level setting
+            # in the same context in which it will be used.
+            self._driver.set_trigger_source("VID")
+            original_video_level_pct = float(
+                self._driver.call_driver_helper(
+                    "get_video_trigger_level_pct",
+                    get_video_trigger_level_pct,
+                )
+            )
+
+            readback = self._driver.call_driver_helper(
+                "configure_video_trigger",
+                configure_video_trigger,
+                level_pct=level_pct,
+                offset_s=requested_offset_s,
+            )
+            trace = self._driver.acquire_trace_ascii(
+                channel=self._config.channel,
+                window=self._config.window,
+                trace=self._config.trace,
+                timeout_s=timeout_s,
+                cancel_check=cancel_check,
+            )
+            result = self._trace_to_result(trace, "VID")
+            result.metadata["acquisition_mode"] = "single"
+            result.metadata["video_trigger"] = {
+                "enabled": True,
+                "sweep_time_s": sweep_time,
+                "video_level_pct_requested": level_pct,
+                "trigger_offset_s_requested": requested_offset_s,
+                "readback": dict(readback),
+            }
+            return result
+        finally:
+            def restore(operation: str, callback, *args) -> None:
+                try:
+                    callback(*args)
+                except Exception as exc:
+                    restore_errors.append(
+                        {
+                            "operation": operation,
+                            "error_type": type(exc).__name__,
+                            "message": str(exc),
+                        }
+                    )
+
+            if original_video_level_pct is not None:
+                restore(
+                    "video_level",
+                    self._driver.call_driver_helper,
+                    "set_video_trigger_level_pct",
+                    set_video_trigger_level_pct,
+                    original_video_level_pct,
+                )
+            restore(
+                "trigger_offset",
+                self._driver.call_driver_helper,
+                "set_trigger_offset_s",
+                set_trigger_offset_s,
+                original_offset_s,
+            )
+            restore("trigger_source", self._driver.set_trigger_source, original_source)
+            restore(
+                "continuous",
+                self._driver.set_continuous,
+                original_continuous,
+                self._config.channel,
+            )
+            if result is not None:
+                result.metadata["video_trigger"]["restore_errors"] = restore_errors
 
 
 class FormalDSOXAdapter(DSOX3034AAdapter):

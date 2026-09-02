@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import numpy as np
@@ -39,16 +40,30 @@ def write_spectrum_npz(path: Path, spectrum: SpectrumResult) -> None:
 
 
 def write_waveform_npz(path: Path, waveform: WaveformResult) -> None:
-    """保存示波器波形为压缩 NPZ。"""
+    """保存示波器波形及可移植元数据为压缩 NPZ。
+
+    ``metadata_json`` keeps optional Snapshot All values attached to the waveform
+    when NPZ files are copied away from Batch/job metadata. Older readers ignore
+    this extra array, while the current loader restores it automatically.
+    """
 
     if len(waveform.time_s) != len(waveform.voltage_v):
         raise ValueError("waveform time and voltage lengths must match")
 
-    _write_arrays(
-        path,
-        time_s=np.asarray(waveform.time_s, dtype=np.float64),
-        voltage_v=np.asarray(waveform.voltage_v, dtype=np.float64),
-    )
+    arrays = {
+        "time_s": np.asarray(waveform.time_s, dtype=np.float64),
+        "voltage_v": np.asarray(waveform.voltage_v, dtype=np.float64),
+    }
+    if waveform.metadata:
+        arrays["metadata_json"] = np.asarray(
+            json.dumps(
+                waveform.metadata,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                default=str,
+            )
+        )
+    _write_arrays(path, **arrays)
 
 
 def load_spectrum_npz(
@@ -89,16 +104,27 @@ def load_waveform_npz(
     sample_rate_hz: float | None = None,
     metadata: dict | None = None,
 ) -> WaveformResult:
-    """从 NPZ 重新加载 WaveformResult。"""
+    """从 NPZ 重新加载 WaveformResult，包括内嵌 Snapshot All 元数据。"""
 
     with np.load(Path(path), allow_pickle=False) as data:
         time_s = data["time_s"].astype(np.float64).tolist()
         voltage_v = data["voltage_v"].astype(np.float64).tolist()
+        loaded_metadata: dict = {}
+        if "metadata_json" in data.files:
+            try:
+                embedded = json.loads(str(np.asarray(data["metadata_json"]).item()))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                embedded = {}
+            if isinstance(embedded, dict):
+                loaded_metadata.update(embedded)
+
+    if metadata is not None:
+        loaded_metadata.update(dict(metadata))
 
     return WaveformResult(
         channel=channel,
         time_s=time_s,
         voltage_v=voltage_v,
         sample_rate_hz=sample_rate_hz,
-        metadata=dict(metadata) if metadata is not None else {},
+        metadata=loaded_metadata,
     )

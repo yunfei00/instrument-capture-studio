@@ -219,6 +219,18 @@ class MainWindow(ReviewWindow):
             preview += f" · +{len(fields) - 3} 项"
         self.project_record_summary.setText(f"已填写 {len(fields)}/10 · {preview}")
 
+    def _apply_resume_plan_to_controls(self, batch) -> None:
+        """Show the exact project records frozen with the resumable Batch."""
+        super()._apply_resume_plan_to_controls(batch)
+        try:
+            manifest = load_batch_manifest(Path(batch.manifest_path))
+            self._project_user_fields = normalize_user_fields(
+                manifest.get("user_fields")
+            )
+        except (OSError, ValueError):
+            self._project_user_fields = ()
+        self._refresh_project_record_summary()
+
     def _set_capture_busy(self, busy: bool) -> None:
         super()._set_capture_busy(busy)
         if hasattr(self, "project_record_button"):

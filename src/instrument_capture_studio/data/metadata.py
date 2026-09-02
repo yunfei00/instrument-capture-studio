@@ -68,11 +68,15 @@ def _paired_acquisition_parameters(context: CaptureContext) -> dict[str, Any]:
         else None
     )
     timing_windows = context.metadata.get("timing_windows")
+    video_trigger = context.metadata.get("fsw_video_trigger")
 
     return {
         "fsw": {
             "sweep_time_s": context.metadata.get("fsw_sweep_time_s"),
             "frontend": deepcopy(frontend) if isinstance(frontend, dict) else None,
+            "video_trigger": (
+                deepcopy(video_trigger) if isinstance(video_trigger, dict) else None
+            ),
         },
         "dsox": {
             "sync": deepcopy(timing_windows.get("sync"))
@@ -102,6 +106,7 @@ def build_capture_metadata(
         spectra = {
             "ext": _spectrum_summary(context.spectrum_ext),
             "freerun": _spectrum_summary(context.spectrum_freerun),
+            "video": _spectrum_summary(context.spectrum_video),
         }
         oscilloscope = {
             "waveform_channel": context.metadata.get("waveform_channel"),

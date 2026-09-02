@@ -116,6 +116,7 @@ def main() -> None:
     assert "45.9" in window.recipe_summary_label.text()
     assert "-Sweep Time/2" in window.recipe_summary_label.text()
 
+    window.fsw_resource_edit.setText("MOCK::INSTR")
     fsw_settings = window._build_fsw_settings()
     assert fsw_settings.video_trigger_enabled is True
     assert fsw_settings.video_trigger_level_pct == 45.9

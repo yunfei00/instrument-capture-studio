@@ -135,3 +135,29 @@ def test_batch_update_changes_manifest_and_existing_samples(tmp_path: Path):
     assert read_sample_user_fields(sample) == (
         {"name": "项目名称", "value": "Project-A"},
     )
+
+
+def test_batch_update_refuses_running_or_paused_batch(tmp_path: Path):
+    for state in ("running", "paused"):
+        manifest_path = tmp_path / state / "batch.json"
+        write_batch_manifest(
+            manifest_path,
+            {
+                "schema_version": 1,
+                "batch_id": f"batch-{state}",
+                "state": state,
+                "user_fields": [{"name": "项目名称", "value": "Original"}],
+                "jobs": [],
+            },
+        )
+
+        with pytest.raises(RuntimeError, match="不允许修改项目记录"):
+            update_batch_user_fields(
+                manifest_path,
+                [{"name": "项目名称", "value": "Changed"}],
+            )
+
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        assert payload["user_fields"] == [
+            {"name": "项目名称", "value": "Original"}
+        ]

@@ -10,7 +10,7 @@ def main() -> None:
     window = create_main_window()
 
     assert window.windowTitle() == "Instrument Capture Studio"
-    assert type(window).__module__.endswith("review_window")
+    assert type(window).__module__.endswith("custom_fields_window")
     assert window.safe_close_pending is False
     assert window.connection_tests_active == 0
 
@@ -57,6 +57,13 @@ def main() -> None:
     assert window.manual_review_button.text() == "人工筛选当前 Batch"
     assert hasattr(window, "directory_review_button")
     assert window.directory_review_button.text() == "选择目录人工筛选"
+    assert hasattr(window, "project_record_button")
+    assert window.project_record_button.text() == "编辑 10 项…"
+    assert hasattr(window, "project_record_summary")
+    assert hasattr(window, "edit_data_records_button")
+    assert window.edit_data_records_button.text() == "编辑项目记录"
+    assert hasattr(window, "directory_records_button")
+    assert window.directory_records_button.text() == "目录项目记录"
 
     assert hasattr(window, "fsw_workspace_hint")
     assert hasattr(window, "dsox_workspace_hint")
@@ -118,13 +125,13 @@ def main() -> None:
     assert "连续" in window.task_summary_frequency.text()
 
     badge = window.findChild(QLabel, "alphaBadge")
-    assert badge is not None and badge.text() == "v1.1.0"
+    assert badge is not None and badge.text() == "v1.2.0"
     assert badge.maximumWidth() == 118
 
     window._controller.shutdown()
     window.deleteLater()
     app.processEvents()
-    print("Instrument Capture Studio v1.1.0 portable-review GUI smoke test PASS")
+    print("Instrument Capture Studio v1.2.0 project-record GUI smoke test PASS")
 
 
 if __name__ == "__main__":

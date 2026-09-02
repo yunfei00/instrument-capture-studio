@@ -35,6 +35,7 @@ from instrument_capture_studio.app.single_recipe_capture import (
     run_dsox_only_capture,
     run_imm_spectrum_capture,
 )
+from instrument_capture_studio.data.custom_fields import normalize_user_fields
 from instrument_capture_studio.data.job_sink import JobDirectoryResultSink
 
 
@@ -213,6 +214,11 @@ class HardwareWorker(QObject):
         dsox_settings = request.get("dsox_settings")
         plan = request.get("plan")
         resume_manifest_path = request.get("resume_manifest_path")
+        try:
+            user_fields = normalize_user_fields(request.get("user_fields"))
+        except ValueError as exc:
+            self.capture_failed.emit(type(exc).__name__, str(exc))
+            return
 
         if execution is not ExecutionMode.SINGLE:
             if recipe is not CaptureRecipe.EXT_IMM_PAIR:
@@ -227,6 +233,7 @@ class HardwareWorker(QObject):
                 output_root,
                 plan,
                 resume_manifest_path=resume_manifest_path,
+                user_fields=user_fields,
             )
             return
 
@@ -235,6 +242,7 @@ class HardwareWorker(QObject):
             fsw_settings,
             dsox_settings,
             output_root,
+            user_fields=user_fields,
         )
 
     def _run_recipe_single(
@@ -243,10 +251,13 @@ class HardwareWorker(QObject):
         fsw_settings,
         dsox_settings,
         output_root: str,
+        *,
+        user_fields=(),
     ) -> None:
         base_job_id = f"capture-{uuid4().hex[:12]}"
         output_path = Path(output_root).expanduser().resolve()
         attempt = 1
+        capture_metadata = {"user_fields": list(user_fields)}
         while attempt <= self._recovery_policy.max_attempts:
             if self._cancel_event.is_set():
                 self.capture_failed.emit(
@@ -267,6 +278,7 @@ class HardwareWorker(QObject):
                         result_sink=sink,
                         job_manifest_sink=sink,
                         progress_callback=self._report_progress,
+                        capture_metadata=capture_metadata,
                     )
                 elif recipe is CaptureRecipe.IMM_SPECTRUM_ONLY:
                     result = run_imm_spectrum_capture(
@@ -277,6 +289,7 @@ class HardwareWorker(QObject):
                         result_sink=sink,
                         job_manifest_sink=sink,
                         progress_callback=self._report_progress,
+                        capture_metadata=capture_metadata,
                     )
                 else:
                     result = run_dsox_only_capture(
@@ -286,6 +299,7 @@ class HardwareWorker(QObject):
                         result_sink=sink,
                         job_manifest_sink=sink,
                         progress_callback=self._report_progress,
+                        capture_metadata=capture_metadata,
                     )
             except Exception as exc:
                 reason = recovery_reason_from_exception(exc)
@@ -331,6 +345,7 @@ class HardwareWorker(QObject):
         plan: FrequencySweepPlan | None,
         *,
         resume_manifest_path: str | Path | None = None,
+        user_fields=(),
     ) -> None:
         resume_path = (
             Path(resume_manifest_path).expanduser().resolve()
@@ -393,6 +408,7 @@ class HardwareWorker(QObject):
                 log_callback=self.log.emit,
                 capture_runner=run_connected_paired_capture,
                 resume_manifest_path=resume_path,
+                user_fields=user_fields,
             )
         except Exception as exc:
             self.capture_failed.emit(type(exc).__name__, str(exc))
@@ -531,7 +547,6 @@ class HardwareController(QObject):
 
     def cancel_capture(self) -> None:
         self._cancel_event.set()
-        # Wake a Batch that is currently waiting in PAUSED state.
         self._pause_event.clear()
         self.log.emit("已发送停止请求，等待当前仪表操作安全结束。")
 

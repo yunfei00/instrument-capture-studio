@@ -26,6 +26,7 @@ def _run_single_instrument(
     job_id: str,
     result_sink: CaptureResultSink | None,
     job_manifest_sink: CaptureJobManifestSink | None,
+    capture_metadata: dict[str, object] | None = None,
 ) -> CaptureResult:
     result: CaptureResult | None = None
     started_at = datetime.now(timezone.utc)
@@ -34,10 +35,13 @@ def _run_single_instrument(
         _begin_job_storage(job_id, started_at, result_sink, job_manifest_sink)
         adapter.connect()
         connected = True
-        metadata = {
-            "recipe": recipe,
-            "instruments": {instrument_key: _instrument_snapshot(adapter)},
-        }
+        metadata = deepcopy(capture_metadata or {})
+        metadata.update(
+            {
+                "recipe": recipe,
+                "instruments": {instrument_key: _instrument_snapshot(adapter)},
+            }
+        )
         result = workflow_factory(metadata).run(job_id)
         return result
     except Exception as exc:
@@ -48,6 +52,7 @@ def _run_single_instrument(
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
                 metadata={
+                    **deepcopy(capture_metadata or {}),
                     "recipe": recipe,
                     "application_error": {
                         "stage": "connect_or_capture",
@@ -81,6 +86,7 @@ def run_imm_spectrum_capture(
     result_sink: CaptureResultSink | None = None,
     job_manifest_sink: CaptureJobManifestSink | None = None,
     progress_callback: ProgressCallback | None = None,
+    capture_metadata: dict[str, object] | None = None,
 ) -> CaptureResult:
     return _run_single_instrument(
         spectrum_analyzer,
@@ -97,6 +103,7 @@ def run_imm_spectrum_capture(
         job_id=job_id,
         result_sink=result_sink,
         job_manifest_sink=job_manifest_sink,
+        capture_metadata=capture_metadata,
     )
 
 
@@ -108,6 +115,7 @@ def run_dsox_only_capture(
     result_sink: CaptureResultSink | None = None,
     job_manifest_sink: CaptureJobManifestSink | None = None,
     progress_callback: ProgressCallback | None = None,
+    capture_metadata: dict[str, object] | None = None,
 ) -> CaptureResult:
     return _run_single_instrument(
         oscilloscope,
@@ -123,4 +131,5 @@ def run_dsox_only_capture(
         job_id=job_id,
         result_sink=result_sink,
         job_manifest_sink=job_manifest_sink,
+        capture_metadata=capture_metadata,
     )

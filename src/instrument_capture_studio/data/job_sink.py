@@ -8,6 +8,7 @@ from instrument_capture_studio.data.batch_manifest import (
     format_frequency_directory,
     load_batch_manifest,
 )
+from instrument_capture_studio.data.custom_fields import ensure_sample_info
 from instrument_capture_studio.data.job_manifest import (
     build_job_manifest,
     write_job_manifest,
@@ -133,6 +134,23 @@ class JobDirectoryResultSink:
         )
         write_capture_metadata(layout.metadata_path, metadata)
         output_files = [str(layout.metadata_path)]
+
+        user_fields = context.metadata.get("user_fields")
+        batch_metadata = context.metadata.get("batch")
+        frequency_hz = None
+        if isinstance(batch_metadata, dict):
+            try:
+                frequency_hz = float(batch_metadata.get("frequency_hz"))
+            except (TypeError, ValueError):
+                frequency_hz = None
+        sample_info = ensure_sample_info(
+            layout.job_directory,
+            job_id=job_id,
+            user_fields=user_fields,
+            frequency_hz=frequency_hz,
+        )
+        if sample_info is not None:
+            output_files.append(str(sample_info))
 
         # Internal legacy/debug artifacts.
         if context.spectrum is not None:

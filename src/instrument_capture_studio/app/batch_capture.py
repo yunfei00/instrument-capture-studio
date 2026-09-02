@@ -20,6 +20,7 @@ from instrument_capture_studio.data.batch_manifest import (
     load_batch_manifest,
     write_batch_manifest,
 )
+from instrument_capture_studio.data.custom_fields import normalize_user_fields
 from instrument_capture_studio.data.job_sink import JobDirectoryResultSink
 
 
@@ -231,6 +232,7 @@ def run_frequency_sweep_batch(
     log_callback: LogCallback | None = None,
     capture_runner: CaptureRunner = run_connected_capture,
     resume_manifest_path: Path | None = None,
+    user_fields: object = None,
 ) -> BatchCaptureResult:
     """Run or resume a full frequency sweep while reusing instrument sessions.
 
@@ -239,16 +241,16 @@ def run_frequency_sweep_batch(
     sessions are released while PAUSED. Resume opens a fresh session and starts
     at the next unfinished logical sample.
 
-    If ``resume_manifest_path`` is provided, successful logical samples already
-    recorded in batch.json are skipped. The first attempt after process restart
-    receives a ``-resumeN`` Job suffix so a half-written Job from an unexpected
-    exit can never be mixed with newly acquired data.
+    Project ``user_fields`` are frozen when a new Batch starts. Resume always
+    reloads the frozen values from batch.json, so editing the GUI while a Batch
+    is interrupted cannot change labels halfway through one dataset.
     """
 
     policy = recovery_policy or RecoveryPolicy()
     now = datetime.now(timezone.utc)
     output_root = Path(output_root)
     resume_sequence = 0
+    requested_user_fields = normalize_user_fields(user_fields)
 
     if resume_manifest_path is not None:
         manifest_path = Path(resume_manifest_path).expanduser().resolve()
@@ -260,6 +262,7 @@ def run_frequency_sweep_batch(
             raise ValueError("resume batch_id does not match manifest")
         batch_id = manifest_batch_id
         _validate_resume_plan(manifest, plan)
+        frozen_user_fields = normalize_user_fields(manifest.get("user_fields"))
         started_at = _parse_datetime(manifest.get("started_at"), now)
         manifest.setdefault("jobs", [])
         manifest.setdefault("recovery_events", [])
@@ -284,6 +287,7 @@ def run_frequency_sweep_batch(
             f"已完成 {len(_successful_logical_keys(manifest))}/{plan.total_captures}",
         )
     else:
+        frozen_user_fields = requested_user_fields
         started_at = now
         batch_directory = build_batch_directory(output_root, batch_id, started_at)
         manifest_path = batch_directory / "batch.json"
@@ -293,6 +297,7 @@ def run_frequency_sweep_batch(
             "state": BatchState.RUNNING.value,
             "started_at": started_at.isoformat(),
             "finished_at": None,
+            "user_fields": list(frozen_user_fields),
             "plan": {
                 "start_hz": plan.start_hz,
                 "stop_hz": plan.stop_hz,
@@ -360,9 +365,6 @@ def run_frequency_sweep_batch(
                 if logical_key in completed_keys:
                     continue
 
-                # Pause only at a complete logical-sample boundary. Release VISA
-                # sessions while paused so the instruments are not left remote
-                # or locked for an arbitrary amount of time.
                 if pause_check is not None and pause_check():
                     _close_session(fsw, dsox)
                     fsw = None
@@ -513,6 +515,7 @@ def run_frequency_sweep_batch(
                             result_sink=sink,
                             job_manifest_sink=sink,
                             capture_metadata={
+                                "user_fields": list(frozen_user_fields),
                                 "batch": {
                                     "batch_id": batch_id,
                                     "frequency_hz": frequency_hz,
@@ -528,7 +531,7 @@ def run_frequency_sweep_batch(
                                     "frequency_config_duration_ms": round(
                                         frequency_config_ms, 3
                                     ),
-                                }
+                                },
                             },
                         )
                     except Exception as exc:

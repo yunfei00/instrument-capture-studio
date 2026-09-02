@@ -49,6 +49,7 @@ def test_write_and_reload_zero_span_spectrum_npz(tmp_path):
             "center_frequency_hz",
             "span_hz",
             "sweep_time_s",
+            "metadata_json",
         } == set(data.files)
         np.testing.assert_allclose(data["time_s"], spectrum.time_s)
         assert float(data["center_frequency_hz"]) == 700e6
@@ -59,6 +60,28 @@ def test_write_and_reload_zero_span_spectrum_npz(tmp_path):
     assert loaded.time_s == pytest.approx([0.0, 0.1, 0.2])
     assert loaded.metadata["center_frequency_hz"] == 700e6
     assert loaded.metadata["sweep_time_s"] == pytest.approx(0.2)
+
+
+def test_spectrum_npz_embeds_and_restores_video_trigger_metadata(tmp_path):
+    path = tmp_path / "spectrum_video.npz"
+    spectrum = SpectrumResult(
+        frequencies_hz=[700e6],
+        amplitudes_dbm=[-48.0],
+        metadata={
+            "trigger_source": "VID",
+            "video_trigger": {
+                "video_level_pct_requested": 45.9,
+                "trigger_offset_s_requested": -0.005,
+            },
+        },
+    )
+
+    write_spectrum_npz(path, spectrum)
+    loaded = load_spectrum_npz(path)
+
+    assert loaded.metadata["trigger_source"] == "VID"
+    assert loaded.metadata["video_trigger"]["video_level_pct_requested"] == 45.9
+    assert loaded.metadata["video_trigger"]["trigger_offset_s_requested"] == -0.005
 
 
 def test_spectrum_npz_rejects_mismatched_lengths(tmp_path):

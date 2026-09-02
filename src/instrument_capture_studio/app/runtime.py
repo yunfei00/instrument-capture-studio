@@ -27,6 +27,10 @@ class FSWRuntimeSettings:
     rbw_hz: float | None = None
     vbw_hz: float | None = None
     trigger_source: str | None = None
+    # Optional fifth spectrum in the formal paired recipe. The existing
+    # EXT + two DSO-X + IMM sequence remains unchanged when this is False.
+    video_trigger_enabled: bool = False
+    video_trigger_level_pct: float = 45.9
 
     def __post_init__(self) -> None:
         if not self.resource.strip():
@@ -35,6 +39,8 @@ class FSWRuntimeSettings:
             raise ValueError("FSW transport timeout must be greater than 0")
         if self.step_timeout_s <= 0:
             raise ValueError("FSW step timeout must be greater than 0")
+        if not 0.0 <= float(self.video_trigger_level_pct) <= 100.0:
+            raise ValueError("FSW VIDEO trigger level must be between 0 and 100 percent")
 
 
 @dataclass(frozen=True)
@@ -91,7 +97,7 @@ def build_fsw_adapter(settings: FSWRuntimeSettings) -> FormalFSWAdapter:
         backend=settings.backend,
     )
 
-    return FormalFSWAdapter(
+    adapter = FormalFSWAdapter(
         address=settings.resource,
         driver=RohdeSchwarzFSWDriver(transport),
         config=FSWConfig(
@@ -102,6 +108,11 @@ def build_fsw_adapter(settings: FSWRuntimeSettings) -> FormalFSWAdapter:
             trigger_source=settings.trigger_source,
         ),
     )
+    # These are recipe policies, not generic FSW instrument configuration.
+    # Keep them on the commercial adapter rather than in the baseline driver.
+    adapter.video_trigger_enabled = bool(settings.video_trigger_enabled)
+    adapter.video_trigger_level_pct = float(settings.video_trigger_level_pct)
+    return adapter
 
 
 def build_dsox_adapter(settings: DSOXRuntimeSettings) -> FormalDSOXAdapter:

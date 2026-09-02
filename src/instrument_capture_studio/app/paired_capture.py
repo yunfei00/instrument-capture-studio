@@ -29,6 +29,10 @@ def _copy_paired_runtime_parameters(
     if isinstance(timing_windows, dict):
         result.metadata["timing_windows"] = deepcopy(timing_windows)
 
+    video_trigger = context_metadata.get("fsw_video_trigger")
+    if isinstance(video_trigger, dict):
+        result.metadata["fsw_video_trigger"] = deepcopy(video_trigger)
+
     instruments = initial_metadata.get("instruments")
     spectrum_analyzer = (
         instruments.get("spectrum_analyzer")
@@ -47,6 +51,9 @@ def _copy_paired_runtime_parameters(
         "fsw": {
             "sweep_time_s": context_metadata.get("fsw_sweep_time_s"),
             "frontend": deepcopy(frontend) if isinstance(frontend, dict) else None,
+            "video_trigger": (
+                deepcopy(video_trigger) if isinstance(video_trigger, dict) else None
+            ),
         },
         "dsox": {
             "sync": deepcopy(timing_windows.get("sync"))

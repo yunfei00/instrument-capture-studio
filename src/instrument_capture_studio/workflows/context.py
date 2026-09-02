@@ -11,7 +11,7 @@ from instrument_capture_studio.core.results import (
 class CaptureContext:
     """Shared data collected during one logical Capture Job.
 
-    The final paired recipe contains exactly four primary traces:
+    The final paired recipe keeps the original four primary traces:
 
     - ``spectrum_ext``: FSW spectrum triggered by the first DSO-X acquisition.
     - ``waveform_sync``: DSO-X waveform from that same synchronization event.
@@ -19,13 +19,18 @@ class CaptureContext:
       the operator-configurable follow-up Position/Scale window.
     - ``spectrum_freerun``: final FSW Free Run / IMM spectrum.
 
+    ``spectrum_video`` is an optional fifth FSW trace appended after those four.
+    It deliberately does not change the original paired-completeness contract,
+    so disabling the option leaves the qualified v1.2 acquisition unchanged.
+
     Legacy fields remain only for the standalone DSO-X recipe and internal
-    regression plumbing. They are not part of the final paired data contract.
+    regression plumbing. They are not part of the primary paired data contract.
     """
 
     spectrum: SpectrumResult | None = None
     spectrum_ext: SpectrumResult | None = None
     spectrum_freerun: SpectrumResult | None = None
+    spectrum_video: SpectrumResult | None = None
     spectrum_imm: SpectrumResult | None = None
 
     waveform: WaveformResult | None = None
@@ -58,7 +63,7 @@ class CaptureContext:
 
     @property
     def is_paired_complete(self) -> bool:
-        """Final synchronized paired-sample completeness."""
+        """Original synchronized paired-sample completeness (four primary traces)."""
         return all(
             (
                 self.spectrum_ext is not None,

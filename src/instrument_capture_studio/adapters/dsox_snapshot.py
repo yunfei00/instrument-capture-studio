@@ -14,6 +14,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import math
+from typing import Callable
+
+
+CancelCheck = Callable[[], bool]
 
 
 @dataclass(frozen=True)
@@ -62,13 +66,19 @@ SNAPSHOT_ALL_MEASUREMENTS: tuple[SnapshotMeasurementSpec, ...] = (
 )
 
 
-def read_snapshot_all(driver, channel: int) -> dict[str, object]:
+def read_snapshot_all(
+    driver,
+    channel: int,
+    *,
+    cancel_check: CancelCheck | None = None,
+) -> dict[str, object]:
     """Read one lossless Snapshot All record for the selected analog channel.
 
     Invalid scope measurements commonly use an infinity sentinel around 9.9E+37.
     Those values are kept in ``raw`` but exposed as ``value=None``/``valid=False``.
-    Driver/firmware errors are captured per measurement so this optional feature
-    never discards the waveform that was already acquired successfully.
+    Signal/firmware-dependent measurement errors are captured per item. A real
+    transport failure stops the optional sweep immediately so one broken VISA
+    session cannot cause 31 consecutive timeout waits.
     """
 
     channel_number = int(channel)
@@ -96,10 +106,22 @@ def read_snapshot_all(driver, channel: int) -> dict[str, object]:
             "type": type(exc).__name__,
             "message": str(exc),
         }
+        if _is_transport_failure(exc):
+            snapshot["collection_complete"] = False
+            snapshot["stop_reason"] = "transport_error"
+            snapshot["successful_measurements"] = 0
+            snapshot["failed_or_invalid_measurements"] = 0
+            snapshot["unread_measurements"] = len(SNAPSHOT_ALL_MEASUREMENTS)
+            return snapshot
 
     results: dict[str, object] = {}
     successful = 0
+    stop_reason: str | None = None
     for spec in SNAPSHOT_ALL_MEASUREMENTS:
+        if cancel_check is not None and cancel_check():
+            stop_reason = "canceled"
+            break
+
         command = spec.query_template.format(source=source)
         entry: dict[str, object] = {
             "label": spec.label,
@@ -122,11 +144,21 @@ def read_snapshot_all(driver, channel: int) -> dict[str, object]:
                 "type": type(exc).__name__,
                 "message": str(exc),
             }
+            results[spec.key] = entry
+            if _is_transport_failure(exc):
+                stop_reason = "transport_error"
+                break
+            continue
         results[spec.key] = entry
 
+    unread = len(SNAPSHOT_ALL_MEASUREMENTS) - len(results)
     snapshot["measurements"] = results
     snapshot["successful_measurements"] = successful
     snapshot["failed_or_invalid_measurements"] = len(results) - successful
+    snapshot["unread_measurements"] = unread
+    snapshot["collection_complete"] = stop_reason is None and unread == 0
+    if stop_reason is not None:
+        snapshot["stop_reason"] = stop_reason
     return snapshot
 
 
@@ -138,3 +170,18 @@ def _parse_measurement_value(raw: str) -> tuple[float | None, bool]:
     if not math.isfinite(value) or abs(value) >= 9.0e37:
         return None, False
     return value, True
+
+
+def _is_transport_failure(exc: Exception) -> bool:
+    names = {cls.__name__ for cls in type(exc).__mro__}
+    return bool(
+        names
+        & {
+            "CaptureCanceledError",
+            "InstrumentTimeoutError",
+            "InstrumentConnectionError",
+            "InstrumentCommunicationError",
+            "OperationCanceledError",
+            "VisaIOError",
+        }
+    )

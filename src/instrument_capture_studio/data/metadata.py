@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,40 @@ def _measurement_summary(value):
     }
 
 
+def _paired_acquisition_parameters(context: CaptureContext) -> dict[str, Any]:
+    """Build the compact measurement-condition record requested for each Job."""
+
+    instruments = context.metadata.get("instruments")
+    spectrum_analyzer = (
+        instruments.get("spectrum_analyzer")
+        if isinstance(instruments, dict)
+        else None
+    )
+    frontend = (
+        spectrum_analyzer.get("frontend")
+        if isinstance(spectrum_analyzer, dict)
+        else None
+    )
+    timing_windows = context.metadata.get("timing_windows")
+
+    return {
+        "fsw": {
+            "sweep_time_s": context.metadata.get("fsw_sweep_time_s"),
+            "frontend": deepcopy(frontend) if isinstance(frontend, dict) else None,
+        },
+        "dsox": {
+            "sync": deepcopy(timing_windows.get("sync"))
+            if isinstance(timing_windows, dict)
+            and isinstance(timing_windows.get("sync"), dict)
+            else None,
+            "followup": deepcopy(timing_windows.get("followup"))
+            if isinstance(timing_windows, dict)
+            and isinstance(timing_windows.get("followup"), dict)
+            else None,
+        },
+    }
+
+
 def build_capture_metadata(
     job_id: str,
     context: CaptureContext,
@@ -101,6 +136,11 @@ def build_capture_metadata(
         "oscilloscope": oscilloscope,
         "metadata": context.metadata,
     }
+
+    if recipe == "ext_imm_pair":
+        # Keep the values easy to find in metadata.json instead of requiring
+        # downstream users to understand the internal context structure.
+        metadata["acquisition_parameters"] = _paired_acquisition_parameters(context)
 
     if context.spectrum is not None:
         metadata["debug_spectrum"] = _spectrum_summary(context.spectrum)

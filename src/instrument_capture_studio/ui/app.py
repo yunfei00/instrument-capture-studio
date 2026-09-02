@@ -5,10 +5,10 @@ import sys
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QApplication, QLabel
 
-from instrument_capture_studio.ui.snapshot_window import MainWindow
+from instrument_capture_studio.ui.video_trigger_window import MainWindow
 
 
-_RELEASE_LABEL = "v1.2.0"
+_RELEASE_LABEL = "v1.3.0"
 
 
 def create_application(argv: list[str] | None = None) -> QApplication:

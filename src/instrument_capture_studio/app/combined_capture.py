@@ -22,6 +22,16 @@ from instrument_capture_studio.workflows.result_sink import (
 CancelCheck = Callable[[], bool]
 
 
+def _can_read_fsw_frontend(adapter) -> bool:
+    driver = getattr(adapter, "_driver", None)
+    if driver is None:
+        return False
+    supports = getattr(driver, "supports", None)
+    if callable(supports):
+        return bool(supports("query"))
+    return callable(getattr(driver, "query", None))
+
+
 def _instrument_snapshot(adapter) -> dict[str, object]:
     """读取一次不可变的仪表身份和配置快照。"""
 
@@ -40,8 +50,12 @@ def _instrument_snapshot(adapter) -> dict[str, object]:
     # FSW preamp and RF attenuation are measurement conditions, not product
     # settings. Query them before acquisition and keep them read-only. The helper
     # caches one snapshot per adapter/VISA session, so long Batch runs do not add
-    # these queries to every logical sample.
-    if str(getattr(adapter, "name", "")).strip().upper() == "FSW":
+    # these queries to every logical sample. Lightweight test/legacy adapters
+    # without a raw query capability keep the older snapshot contract.
+    if (
+        str(getattr(adapter, "name", "")).strip().upper() == "FSW"
+        and _can_read_fsw_frontend(adapter)
+    ):
         snapshot["frontend"] = read_fsw_frontend_snapshot(adapter)
 
     return snapshot

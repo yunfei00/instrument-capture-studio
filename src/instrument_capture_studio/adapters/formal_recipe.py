@@ -268,5 +268,6 @@ class FormalDSOXAdapter(DSOX3034AAdapter):
             result.metadata["snapshot_all"] = read_snapshot_all(
                 self._driver,
                 self._config.waveform_channel,
+                cancel_check=cancel_check,
             )
         return result

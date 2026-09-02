@@ -10,7 +10,7 @@ def main() -> None:
     window = create_main_window()
 
     assert window.windowTitle() == "Instrument Capture Studio"
-    assert type(window).__module__.endswith("snapshot_window")
+    assert type(window).__module__.endswith("video_trigger_window")
     assert window.safe_close_pending is False
     assert window.connection_tests_active == 0
 
@@ -67,6 +67,10 @@ def main() -> None:
     assert hasattr(window, "snapshot_all_checkbox")
     assert "Snapshot All" in window.snapshot_all_checkbox.text()
     assert not window.snapshot_all_checkbox.isChecked()
+    assert hasattr(window, "video_trigger_checkbox")
+    assert "VIDEO Trigger" in window.video_trigger_checkbox.text()
+    assert not window.video_trigger_checkbox.isChecked()
+    assert window.video_trigger_level_edit.text() == "45.9"
 
     assert hasattr(window, "fsw_workspace_hint")
     assert hasattr(window, "dsox_workspace_hint")
@@ -98,11 +102,24 @@ def main() -> None:
     assert "FSW" in window.task_summary_frequency.text()
     assert not window.auto_pause_checkbox.isEnabled()
     assert window.snapshot_all_checkbox.isEnabled()
+    assert window.video_trigger_checkbox.isEnabled()
+    assert not window.video_trigger_level_edit.isEnabled()
 
     window.snapshot_all_checkbox.setChecked(True)
+    window.video_trigger_checkbox.setChecked(True)
+    window._sync_video_trigger_control()
     window._update_recipe_summary()
+    assert window.video_trigger_level_edit.isEnabled()
     assert "EXT 读取" in window.recipe_summary_label.text()
     assert "Snapshot All：开启" in window.recipe_summary_label.text()
+    assert "VIDEO 频谱：开启" in window.recipe_summary_label.text()
+    assert "45.9" in window.recipe_summary_label.text()
+    assert "-Sweep Time/2" in window.recipe_summary_label.text()
+
+    fsw_settings = window._build_fsw_settings()
+    assert fsw_settings.video_trigger_enabled is True
+    assert fsw_settings.video_trigger_level_pct == 45.9
+
     window._set_instrument_identity(
         "fsw",
         {
@@ -118,6 +135,8 @@ def main() -> None:
     window.recipe_combo.setCurrentText("IMM频谱单采")
     window._sync_recipe_controls()
     assert not window.snapshot_all_checkbox.isEnabled()
+    assert not window.video_trigger_checkbox.isEnabled()
+    assert window._build_fsw_settings().video_trigger_enabled is False
     window.recipe_combo.setCurrentText("EXT联合 + IMM配对样本")
     window._sync_recipe_controls()
 
@@ -137,13 +156,13 @@ def main() -> None:
     assert "连续" in window.task_summary_frequency.text()
 
     badge = window.findChild(QLabel, "alphaBadge")
-    assert badge is not None and badge.text() == "v1.2.0"
+    assert badge is not None and badge.text() == "v1.3.0"
     assert badge.maximumWidth() == 118
 
     window._controller.shutdown()
     window.deleteLater()
     app.processEvents()
-    print("Instrument Capture Studio v1.2.0 Snapshot-All GUI smoke test PASS")
+    print("Instrument Capture Studio v1.3.0 VIDEO spectrum GUI smoke test PASS")
 
 
 if __name__ == "__main__":

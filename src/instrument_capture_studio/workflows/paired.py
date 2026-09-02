@@ -25,7 +25,9 @@ class PairedCaptureWorkflow(CaptureWorkflow):
     """Final synchronized FSW + DSO-X logical-sample workflow.
 
     The operator prepares the FSW measurement and Sweep Time before starting.
-    Every physical acquisition is one-shot / Single:
+    Every physical acquisition is one-shot / Single.
+
+    The original, hardware-qualified sequence remains unchanged:
 
     1. Read live FSW Sweep Time ``T``.
     2. Configure DSO-X sync window: Position=T/2, Scale=T/10.
@@ -38,7 +40,17 @@ class PairedCaptureWorkflow(CaptureWorkflow):
     7. Press DSO-X Single again, wait for completion, then read/save the second
        independent waveform.
     8. Switch FSW to Free Run / IMM and acquire exactly one sweep.
-    9. Persist the four primary traces as one logical sample.
+
+    When the optional VIDEO spectrum is enabled, it is appended only after those
+    four primary traces:
+
+    9. Re-read live FSW Sweep Time ``Tv``.
+    10. Set VIDEO trigger, manual VIDEO level, Trigger Offset=-Tv/2 and acquire
+        one Single spectrum. The adapter restores the prior trigger state.
+    11. Persist the original four primary traces plus the optional VIDEO trace.
+
+    With VIDEO disabled, the step list and behavior remain the original v1.2
+    nine-step workflow.
     """
 
     def __init__(
@@ -62,9 +74,13 @@ class PairedCaptureWorkflow(CaptureWorkflow):
         self._current_job_id: str | None = None
         self._output_files: list[str] = []
         self._sweep_time_s: float | None = None
+        self._video_sweep_time_s: float | None = None
+        self._video_enabled = bool(
+            getattr(self._spectrum_analyzer, "video_trigger_enabled", False)
+        )
         self._context = CaptureContext(metadata=deepcopy(self._initial_metadata))
 
-        self._steps = (
+        steps = [
             CaptureStepDefinition("fsw_sweep_time"),
             CaptureStepDefinition("dsox_sync_config"),
             CaptureStepDefinition("fsw_ext_arm"),
@@ -73,8 +89,16 @@ class PairedCaptureWorkflow(CaptureWorkflow):
             CaptureStepDefinition("dsox_followup_config"),
             CaptureStepDefinition("dsox_followup_capture"),
             CaptureStepDefinition("fsw_freerun", timeout_s=fsw_timeout_s),
-            CaptureStepDefinition("save_result"),
-        )
+        ]
+        if self._video_enabled:
+            steps.extend(
+                (
+                    CaptureStepDefinition("fsw_video_sweep_time"),
+                    CaptureStepDefinition("fsw_video_capture", timeout_s=fsw_timeout_s),
+                )
+            )
+        steps.append(CaptureStepDefinition("save_result"))
+        self._steps = tuple(steps)
 
     @property
     def steps(self) -> tuple[CaptureStepDefinition, ...]:
@@ -92,9 +116,18 @@ class PairedCaptureWorkflow(CaptureWorkflow):
             "dsox_followup": "single",
             "fsw_freerun": "single",
         }
+        if self._video_enabled:
+            self._context.metadata["acquisition_modes"]["fsw_video"] = "single"
+        self._context.metadata["fsw_video_enabled"] = self._video_enabled
+        if self._video_enabled:
+            self._context.metadata["fsw_video_level_pct_requested"] = float(
+                getattr(self._spectrum_analyzer, "video_trigger_level_pct", 45.9)
+            )
+
         self._current_job_id = job_id
         self._output_files = []
         self._sweep_time_s = None
+        self._video_sweep_time_s = None
 
         raw_executors: dict[str, StepExecutor] = {
             "fsw_sweep_time": self._read_sweep_time,
@@ -107,6 +140,10 @@ class PairedCaptureWorkflow(CaptureWorkflow):
             "fsw_freerun": self._acquire_freerun,
             "save_result": self._save_result,
         }
+        if self._video_enabled:
+            raw_executors["fsw_video_sweep_time"] = self._read_video_sweep_time
+            raw_executors["fsw_video_capture"] = self._acquire_video
+
         executors = {
             definition.name: self._with_progress(
                 definition.name,
@@ -130,6 +167,11 @@ class PairedCaptureWorkflow(CaptureWorkflow):
         result.metadata["acquisition_modes"] = deepcopy(
             self._context.metadata["acquisition_modes"]
         )
+        result.metadata["fsw_video_enabled"] = self._video_enabled
+        if "fsw_video_trigger" in self._context.metadata:
+            result.metadata["fsw_video_trigger"] = deepcopy(
+                self._context.metadata["fsw_video_trigger"]
+            )
         if "instruments" in self._context.metadata:
             result.metadata["instruments"] = deepcopy(
                 self._context.metadata["instruments"]
@@ -211,6 +253,27 @@ class PairedCaptureWorkflow(CaptureWorkflow):
                 cancel_check=execution.cancel_check,
             )
         )
+
+    def _read_video_sweep_time(self, execution: StepExecutionContext) -> None:
+        """Read Sweep Time again immediately before the optional VIDEO trace."""
+        self._video_sweep_time_s = self._spectrum_analyzer.read_sweep_time_s()
+        self._context.metadata["fsw_video_sweep_time_s"] = self._video_sweep_time_s
+        self._context.metadata["fsw_video_trigger_offset_s_requested"] = (
+            -self._video_sweep_time_s / 2.0
+        )
+
+    def _acquire_video(self, execution: StepExecutionContext) -> None:
+        if self._video_sweep_time_s is None:
+            raise RuntimeError("FSW VIDEO Sweep Time has not been read")
+        video = self._spectrum_analyzer.acquire_video_current_setup(
+            sweep_time_s=self._video_sweep_time_s,
+            timeout_s=execution.remaining_s,
+            cancel_check=execution.cancel_check,
+        )
+        self._context.spectrum_video = video
+        trigger = video.metadata.get("video_trigger")
+        if isinstance(trigger, dict):
+            self._context.metadata["fsw_video_trigger"] = deepcopy(trigger)
 
     def _save_result(self, execution: StepExecutionContext) -> None:
         if not self._context.is_paired_complete:

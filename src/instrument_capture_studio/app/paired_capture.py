@@ -117,6 +117,7 @@ def run_paired_capture(
     result_sink: CaptureResultSink | None = None,
     job_manifest_sink: CaptureJobManifestSink | None = None,
     progress_callback: ProgressCallback | None = None,
+    capture_metadata: dict[str, object] | None = None,
 ) -> CaptureResult:
     """Connect both instruments, run one paired sample, and always disconnect."""
     connected = []
@@ -138,6 +139,7 @@ def run_paired_capture(
             # Save manifest once, after disconnect metadata is known.
             job_manifest_sink=None,
             progress_callback=progress_callback,
+            capture_metadata=capture_metadata,
         )
         return result
     except Exception as exc:
@@ -148,6 +150,7 @@ def run_paired_capture(
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
                 metadata={
+                    **deepcopy(capture_metadata or {}),
                     "recipe": "ext_imm_pair",
                     "schema_version": 1,
                     "application_error": {

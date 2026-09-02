@@ -19,6 +19,7 @@ from instrument_capture_studio.adapters.dsox3034a import (
     DSOX3034AAdapter,
     DSOX3034AConfig,
 )
+from instrument_capture_studio.adapters.dsox_snapshot import read_snapshot_all
 from instrument_capture_studio.adapters.fsw import FSWAdapter
 from instrument_capture_studio.core.results import WaveformResult
 
@@ -33,6 +34,7 @@ class FormalDSOXConfig(DSOX3034AConfig):
     followup_position_s: float = 0.484
     followup_scale_s: float = 20e-9
     single_timeout_s: float = 30.0
+    snapshot_all_enabled: bool = False
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -258,4 +260,13 @@ class FormalDSOXAdapter(DSOX3034AAdapter):
         )
         result.metadata["acquisition_mode"] = "single"
         result.metadata["acquisition_command"] = ":SINGle"
+
+        # Snapshot All is intentionally read only after the waveform has been
+        # acquired, so all 31 measurements describe the exact Single acquisition
+        # that was just saved. It is optional because it adds many SCPI queries.
+        if bool(getattr(self._config, "snapshot_all_enabled", False)):
+            result.metadata["snapshot_all"] = read_snapshot_all(
+                self._driver,
+                self._config.waveform_channel,
+            )
         return result

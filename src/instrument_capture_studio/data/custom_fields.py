@@ -168,6 +168,10 @@ def update_batch_user_fields(manifest_path: Path, user_fields: object) -> int:
     fields = normalize_user_fields(user_fields)
     manifest_path = Path(manifest_path).expanduser().resolve()
     manifest = load_batch_manifest(manifest_path)
+    state = str(manifest.get("state") or "").lower()
+    if state in {"running", "paused"}:
+        raise RuntimeError("正在运行或暂停待继续的 Batch 不允许修改项目记录")
+
     manifest["user_fields"] = list(fields)
     manifest["user_fields_updated_at"] = _utc_now()
     write_batch_manifest(manifest_path, manifest)

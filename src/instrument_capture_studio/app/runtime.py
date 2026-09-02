@@ -56,6 +56,9 @@ class DSOXRuntimeSettings:
     # Only the second independent scope capture is user-configurable.
     followup_position_s: float = 0.484
     followup_scale_s: float = 20e-9
+    # Optional post-waveform Snapshot All evidence. Disabled by default because
+    # it performs 31 additional scalar measurement queries per scope waveform.
+    snapshot_all_enabled: bool = False
 
     def __post_init__(self) -> None:
         if not self.resource.strip():
@@ -128,5 +131,6 @@ def build_dsox_adapter(settings: DSOXRuntimeSettings) -> FormalDSOXAdapter:
             followup_position_s=settings.followup_position_s,
             followup_scale_s=settings.followup_scale_s,
             single_timeout_s=settings.single_timeout_s,
+            snapshot_all_enabled=settings.snapshot_all_enabled,
         ),
     )

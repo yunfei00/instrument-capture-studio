@@ -87,6 +87,7 @@ jobs:
         shell: pwsh
         run: |
           python -m pytest -q instrument-automation-platform/tests/unit/test_fsw_arm_read.py
+          python -m pytest -q instrument-automation-platform/tests/unit/test_fsw_video_trigger.py
 
       - name: Run DSO-X Single STOP synchronization regression
         shell: pwsh

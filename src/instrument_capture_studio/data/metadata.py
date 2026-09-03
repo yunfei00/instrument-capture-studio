@@ -67,12 +67,29 @@ def _paired_acquisition_parameters(context: CaptureContext) -> dict[str, Any]:
         if isinstance(spectrum_analyzer, dict)
         else None
     )
+    measurement = (
+        spectrum_analyzer.get("measurement")
+        if isinstance(spectrum_analyzer, dict)
+        else None
+    )
     timing_windows = context.metadata.get("timing_windows")
     video_trigger = context.metadata.get("fsw_video_trigger")
 
     return {
         "fsw": {
             "sweep_time_s": context.metadata.get("fsw_sweep_time_s"),
+            # RBW/VBW here are direct instrument readbacks. Do not derive these
+            # from the GUI/runtime configuration because the formal paired recipe
+            # preserves the FSW front-panel measurement setup.
+            "rbw_hz": measurement.get("rbw_hz")
+            if isinstance(measurement, dict)
+            else None,
+            "vbw_hz": measurement.get("vbw_hz")
+            if isinstance(measurement, dict)
+            else None,
+            "measurement": (
+                deepcopy(measurement) if isinstance(measurement, dict) else None
+            ),
             "frontend": deepcopy(frontend) if isinstance(frontend, dict) else None,
             "video_trigger": (
                 deepcopy(video_trigger) if isinstance(video_trigger, dict) else None

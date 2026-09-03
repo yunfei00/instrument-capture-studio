@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from instrument_capture_studio.adapters.fsw_capture_settings import (
     read_fsw_frontend_snapshot,
+    read_fsw_measurement_snapshot,
 )
 from instrument_capture_studio.adapters.interfaces import (
     OscilloscopeAdapter,
@@ -33,7 +34,7 @@ def _can_read_fsw_frontend(adapter) -> bool:
 
 
 def _instrument_snapshot(adapter) -> dict[str, object]:
-    """读取一次不可变的仪表身份和配置快照。"""
+    """读取一次不可变的仪表身份、产品配置和真实测量条件快照。"""
 
     status = adapter.get_status()
     snapshot: dict[str, object] = {
@@ -44,19 +45,21 @@ def _instrument_snapshot(adapter) -> dict[str, object]:
         "serial_number": status.serial_number,
         "firmware_version": status.firmware_version,
         "last_error": status.last_error,
+        # This block describes application/runtime intent. Actual FSW values that
+        # must match the front panel are recorded separately under measurement.
         "configuration": dict(adapter.get_configuration()),
     }
 
-    # FSW preamp and RF attenuation are measurement conditions, not product
-    # settings. Query them before acquisition and keep them read-only. The helper
-    # caches one snapshot per adapter/VISA session, so long Batch runs do not add
-    # these queries to every logical sample. Lightweight test/legacy adapters
-    # without a raw query capability keep the older snapshot contract.
+    # FSW preamp, attenuation, RBW and VBW are measurement conditions prepared
+    # by the operator on the instrument. Query actual readback before acquisition
+    # and keep it read-only. Helpers cache one snapshot per adapter/VISA session,
+    # so long Batch runs do not add these queries to every logical sample.
     if (
         str(getattr(adapter, "name", "")).strip().upper() == "FSW"
         and _can_read_fsw_frontend(adapter)
     ):
         snapshot["frontend"] = read_fsw_frontend_snapshot(adapter)
+        snapshot["measurement"] = read_fsw_measurement_snapshot(adapter)
 
     return snapshot
 

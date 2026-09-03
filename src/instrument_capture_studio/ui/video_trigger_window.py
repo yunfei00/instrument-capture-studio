@@ -6,13 +6,21 @@ from pathlib import Path
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QCheckBox,
+    QFileDialog,
     QGridLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QTreeWidgetItem,
 )
 
 from instrument_capture_studio.app.capture_recipe import CaptureRecipe
+from instrument_capture_studio.data.manual_review import FORMAL_REVIEW_TRACES
+from instrument_capture_studio.data.portable_review import scan_portable_review_samples
+from instrument_capture_studio.ui.five_trace_review import (
+    FiveTraceDirectoryReviewDialog,
+    FiveTraceManualReviewDialog,
+)
 from instrument_capture_studio.ui.product_window import _file_description
 from instrument_capture_studio.ui.snapshot_window import MainWindow as SnapshotWindow
 
@@ -41,6 +49,7 @@ class MainWindow(SnapshotWindow):
         self.recipe_combo.currentTextChanged.connect(self._sync_video_trigger_control)
         self._sync_video_trigger_control()
         self._update_recipe_summary()
+        self._update_review_tooltips()
         self.statusBar().showMessage(
             "就绪 · v1.3 开发版 · Snapshot All · VIDEO 触发频谱可选"
         )
@@ -152,3 +161,66 @@ class MainWindow(SnapshotWindow):
         else:
             suffix = " VIDEO 频谱：关闭，原有四路采集完全不变。"
         self.recipe_summary_label.setText(self.recipe_summary_label.text() + suffix)
+
+    def _update_review_tooltips(self) -> None:
+        if hasattr(self, "manual_review_button"):
+            self.manual_review_button.setToolTip(
+                "五图人工筛选：上排 Free Run + VIDEO；下排 EXT + 两次 DSO-X。"
+                "Del 规则与原来完全一致，删除整个当前样本目录。"
+            )
+        if hasattr(self, "directory_review_button"):
+            self.directory_review_button.setToolTip(
+                "目录人工筛选同样使用五图布局。旧四图数据仍可筛选；"
+                "存在 spectrum_video.npz 时作为第五图显示。"
+            )
+
+    def _open_manual_review(self) -> None:
+        manifest_path, frequency_index, job_id = self._selected_review_context()
+        if manifest_path is None:
+            return
+        dialog = FiveTraceManualReviewDialog(
+            manifest_path,
+            frequency_index=frequency_index,
+            start_job_id=job_id,
+            parent=self,
+        )
+        dialog.showFullScreen()
+        dialog.exec()
+        self._refresh_data_tree()
+
+    def _open_directory_review(self) -> None:
+        start = Path(self.output_root_edit.text()).expanduser()
+        if not start.is_dir():
+            start = Path.home()
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "选择需要人工筛选的数据根目录",
+            str(start),
+        )
+        if not selected:
+            return
+
+        root = Path(selected).expanduser().resolve()
+        try:
+            scan = scan_portable_review_samples(root)
+        except Exception as exc:
+            QMessageBox.warning(
+                self,
+                "目录人工筛选",
+                f"无法扫描所选目录：\n{type(exc).__name__}: {exc}",
+            )
+            return
+        if not scan.samples:
+            QMessageBox.information(
+                self,
+                "目录人工筛选",
+                "没有发现完整样本。\n\n兼容规则仍以原有四个核心 NPZ 判断完整样本：\n"
+                + "\n".join(FORMAL_REVIEW_TRACES)
+                + "\n\n如果存在 spectrum_video.npz，会自动作为第五张图显示。",
+            )
+            return
+
+        dialog = FiveTraceDirectoryReviewDialog(root, scan=scan, parent=self)
+        dialog.showFullScreen()
+        dialog.exec()
+        self._refresh_data_tree()

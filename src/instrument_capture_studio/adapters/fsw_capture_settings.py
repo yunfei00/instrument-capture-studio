@@ -1,10 +1,9 @@
-"""Read-only FSW front-end settings captured before acquisition.
+"""Read-only FSW measurement conditions captured before acquisition.
 
-The acquisition product must preserve the operator's FSW setup. These helpers
-therefore query preamp and RF attenuation only; they never write either value.
-A snapshot is cached on the adapter instance so a long Batch reusing one VISA
-session performs the queries once before its first logical sample instead of on
-every sample.
+The acquisition product preserves the operator's FSW setup. These helpers query
+front-end and bandwidth conditions only; they never write them. Snapshots are
+cached on the adapter instance so a long Batch reusing one VISA session performs
+the queries once instead of on every logical sample.
 """
 
 from __future__ import annotations
@@ -14,19 +13,18 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-_CACHE_ATTRIBUTE = "_capture_frontend_snapshot"
+_FRONTEND_CACHE_ATTRIBUTE = "_capture_frontend_snapshot"
+_MEASUREMENT_CACHE_ATTRIBUTE = "_capture_measurement_snapshot"
 
 
 def read_fsw_frontend_snapshot(adapter: Any) -> dict[str, object]:
     """Return one frozen preamp/attenuation snapshot for an FSW adapter session."""
 
-    cached = getattr(adapter, _CACHE_ATTRIBUTE, None)
+    cached = getattr(adapter, _FRONTEND_CACHE_ATTRIBUTE, None)
     if isinstance(cached, dict):
         return deepcopy(cached)
 
-    driver = getattr(adapter, "_driver", None)
-    if driver is None:
-        raise AttributeError("FSW adapter does not expose its guarded driver")
+    driver = _driver_from_adapter(adapter)
 
     # Prefer the reusable instrument-automation-platform driver API. Raw SCPI is
     # retained only as a compatibility fallback for older local baseline copies.
@@ -68,8 +66,60 @@ def read_fsw_frontend_snapshot(adapter: Any) -> dict[str, object]:
             "rf_attenuation": "INPut:ATTenuation?",
         },
     }
-    setattr(adapter, _CACHE_ATTRIBUTE, deepcopy(snapshot))
+    setattr(adapter, _FRONTEND_CACHE_ATTRIBUTE, deepcopy(snapshot))
     return snapshot
+
+
+def read_fsw_measurement_snapshot(adapter: Any) -> dict[str, object]:
+    """Read actual RBW/VBW from the FSW without changing the front-panel setup.
+
+    This is deliberately an instrument readback, not a copy of GUI/runtime
+    defaults. In particular, a paired capture prepared on the FSW front panel
+    with RBW=10 MHz must be recorded as 10 MHz even if an old GUI field still
+    contains its historical 1 MHz default.
+    """
+
+    cached = getattr(adapter, _MEASUREMENT_CACHE_ATTRIBUTE, None)
+    if isinstance(cached, dict):
+        return deepcopy(cached)
+
+    driver = _driver_from_adapter(adapter)
+    if _supports(driver, "get_rbw"):
+        rbw_hz = float(driver.get_rbw())
+    else:
+        rbw_hz = _query_float(driver, "SENSe:BANDwidth:RESolution?")
+
+    if _supports(driver, "get_vbw"):
+        vbw_hz = float(driver.get_vbw())
+    else:
+        vbw_hz = _query_float(driver, "SENSe:BANDwidth:VIDeo?")
+
+    if rbw_hz <= 0:
+        raise ValueError(f"FSW returned invalid RBW: {rbw_hz}")
+    if vbw_hz <= 0:
+        raise ValueError(f"FSW returned invalid VBW: {vbw_hz}")
+
+    snapshot: dict[str, object] = {
+        "schema_version": 1,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "read_only": True,
+        "source": "instrument_readback",
+        "rbw_hz": rbw_hz,
+        "vbw_hz": vbw_hz,
+        "commands": {
+            "rbw": "SENSe:BANDwidth:RESolution?",
+            "vbw": "SENSe:BANDwidth:VIDeo?",
+        },
+    }
+    setattr(adapter, _MEASUREMENT_CACHE_ATTRIBUTE, deepcopy(snapshot))
+    return snapshot
+
+
+def _driver_from_adapter(adapter: Any):
+    driver = getattr(adapter, "_driver", None)
+    if driver is None:
+        raise AttributeError("FSW adapter does not expose its guarded driver")
+    return driver
 
 
 def _supports(driver: Any, name: str) -> bool:

@@ -58,6 +58,18 @@ class MainWindow(ReleaseWindow):
         layout.addWidget(note, 9, 3, 1, 3)
         self.recipe_debug_button.clicked.connect(self._open_recipe_debugger)
 
+    def _build_fsw_settings(self):
+        settings = super()._build_fsw_settings()
+        if self._selected_recipe() is CaptureRecipe.EXT_IMM_PAIR:
+            # The paired recipe intentionally preserves the FSW front-panel
+            # measurement setup. Historical GUI fields defaulted RBW/VBW to
+            # 1 MHz even though the paired workflow never applied them; keeping
+            # those values in runtime configuration made metadata look as if the
+            # instrument had been read back at 1 MHz. Actual RBW/VBW are queried
+            # from the FSW separately before acquisition.
+            return replace(settings, rbw_hz=None, vbw_hz=None)
+        return settings
+
     def _build_dsox_settings(self):
         settings = super()._build_dsox_settings()
         return replace(

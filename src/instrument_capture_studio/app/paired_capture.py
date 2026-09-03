@@ -44,12 +44,27 @@ def _copy_paired_runtime_parameters(
         if isinstance(spectrum_analyzer, dict)
         else None
     )
+    measurement = (
+        spectrum_analyzer.get("measurement")
+        if isinstance(spectrum_analyzer, dict)
+        else None
+    )
     if isinstance(frontend, dict):
         result.metadata["fsw_frontend"] = deepcopy(frontend)
+    if isinstance(measurement, dict):
+        result.metadata["fsw_measurement"] = deepcopy(measurement)
 
+    rbw_hz = measurement.get("rbw_hz") if isinstance(measurement, dict) else None
+    vbw_hz = measurement.get("vbw_hz") if isinstance(measurement, dict) else None
     result.metadata["acquisition_parameters"] = {
         "fsw": {
             "sweep_time_s": context_metadata.get("fsw_sweep_time_s"),
+            # These are actual FSW readbacks, not GUI defaults.
+            "rbw_hz": rbw_hz,
+            "vbw_hz": vbw_hz,
+            "measurement": (
+                deepcopy(measurement) if isinstance(measurement, dict) else None
+            ),
             "frontend": deepcopy(frontend) if isinstance(frontend, dict) else None,
             "video_trigger": (
                 deepcopy(video_trigger) if isinstance(video_trigger, dict) else None

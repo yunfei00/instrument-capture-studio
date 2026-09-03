@@ -1,11 +1,26 @@
 """Optional FSW VIDEO-triggered fifth spectrum layered on the v1.2 workspace."""
 
 from dataclasses import replace
+from pathlib import Path
 
-from PySide6.QtWidgets import QCheckBox, QGridLayout, QLabel, QLineEdit
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QGridLayout,
+    QLabel,
+    QLineEdit,
+    QTreeWidgetItem,
+)
 
 from instrument_capture_studio.app.capture_recipe import CaptureRecipe
+from instrument_capture_studio.ui.product_window import _file_description
 from instrument_capture_studio.ui.snapshot_window import MainWindow as SnapshotWindow
+
+
+_VIDEO_JOB_FILES = (
+    "spectrum_video.npz",
+    "spectrum_video.csv",
+)
 
 
 class MainWindow(SnapshotWindow):
@@ -71,6 +86,18 @@ class MainWindow(SnapshotWindow):
         grid.addWidget(self.video_trigger_level_edit, row + 1, 1)
         grid.addWidget(level_box, row + 1, 2)
         self.video_trigger_level_label = level_box
+
+    @staticmethod
+    def _append_job_files(node: QTreeWidgetItem, directory: Path) -> None:
+        """Expose the v1.3 VIDEO artifacts alongside the existing formal files."""
+        SnapshotWindow._append_job_files(node, directory)
+        for filename in _VIDEO_JOB_FILES:
+            path = Path(directory) / filename
+            if not path.exists():
+                continue
+            child = QTreeWidgetItem([filename, _file_description(path)])
+            child.setData(0, Qt.ItemDataRole.UserRole, str(path))
+            node.addChild(child)
 
     def _build_fsw_settings(self):
         settings = super()._build_fsw_settings()
